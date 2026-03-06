@@ -1,0 +1,207 @@
+<mujoco model="3DoF_module_snake_robot">
+ <compiler angle="radian" meshdir="meshes/" />
+ <size njmax="1000" nconmax="300" />
+ <option timestep="0.001"/>
+ <visual>
+  <global offwidth="1920" offheight="1080"/>
+ </visual>
+ <asset>
+  <mesh name="base_link" file="base_link.STL" />
+  <mesh name="link_1" file="link_1.STL" />
+  <mesh name="link_2" file="link_2.STL" />
+  <mesh name="link_3" file="link_3.STL" />
+  <mesh name="link_4" file="link_4.STL" />
+  <mesh name="link_5" file="link_5.STL" />
+  <mesh name="link_6" file="link_6.STL" />
+  <mesh name="link_7" file="link_7.STL" />
+  <mesh name="link_8" file="link_8.STL" />
+  <mesh name="link_9" file="link_9.STL" />
+  <mesh name="link_10" file="link_10.STL" />
+  <mesh name="link_11" file="link_11.STL" />
+  <mesh name="link_12" file="link_12.STL" />
+  <mesh name="link_13" file="link_13.STL" />
+  <mesh name="link_14" file="link_14.STL" />
+  <mesh name="link_15" file="link_15.STL" />
+  <mesh name="link_16" file="link_16.STL" />
+  <mesh name="link_17" file="link_17.STL" />
+  <mesh name="link_24" file="link_24.STL" />
+  <texture name="grid" type="2d" builtin="checker" width="500" height="500" rgb1=".1 .2 .3" rgb2=".2 .3 .4"/>
+  <material name="grid" texture="grid" texrepeat="2 2" texuniform="true" reflectance=".2"/>
+  <!-- <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0.8 0.8 0.8" width="512" height="512"/> -->
+ </asset>
+ <worldbody>
+  <geom name="floor" size="0 0 .05" type="plane" 
+   material="grid" condim="3" 
+   friction="0.5 0.005 0.0001" 
+   solimp="0.9 0.95 0.001" 
+   solref="0.005 1" />
+
+  <!-- Two lines for a 3 m track -->
+  <!-- <geom name="line_pos_y" 
+   type="box" 
+   pos="0 1.5 0.001" 
+   size="10 0.01 0.001" 
+   rgba="1 0.5 0 1" 
+   conaffinity="0" 
+   contype="0" 
+   group="1"/>
+  <geom name="line_neg_y" 
+   type="box" 
+   pos="0 -1.5 0.001" 
+   size="10 0.01 0.001" 
+   rgba="0.2 0.8 0 1" 
+   conaffinity="0" 
+   contype="0" 
+   group="1"/> -->
+
+
+  <!-- <light name="spotlight" mode="targetbodycom" target="link_6" diffuse=".8 .8 .8" specular="0.3 0.3 0.3" pos="0 -6 4" cutoff="30"/> -->
+  <light name="top" pos="0 0 50" mode="fixed"/>
+
+  <body name="base_link" pos="0 -1.6 0.04" euler="0 0 -0.2">
+   <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.368" diaginertia="2.2053e-4 2.2053e-4 2.4179e-4" />
+   <geom type="mesh" contype="1" conaffinity="1" group="1" mesh="base_link" rgba="0.15 0 1.0 1" />
+   <joint name="base_free_joint" type="free" />
+
+   <body name="link_1" pos="0.0545 0 0">
+    <inertial pos="0.0125 6.5684e-07 -0.004272" quat="0.5 0.5 0.5 0.5" mass="0.313" diaginertia=" 2.4182e-4 2.4182e-4 2.0565e-4" />
+    <joint name="joint_1" pos="0 0 0" axis="0 0 1" damping="0.7" frictionloss="0.5"/>
+    <geom pos="0.0125 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="1 1 1 1" mesh="link_1" />
+
+    <body name="link_2" pos="0.102 0 0">
+     <inertial pos="0 2.5298e-07 -0.0038765" quat="0.5 0.5 0.5 0.5" mass="0.534" diaginertia=" 6.4753e-4 6.4753e-4 3.5085e-4" />
+     <joint name="joint_2" pos="0 0 0" axis="-1 0 0" damping="0.7" frictionloss="0.5"/>
+     <geom type="mesh" contype="1" conaffinity="1" group="1" rgba="0.8 0.8 0 1" mesh="link_2" />
+
+     <body name="link_3" pos="0.0275 0 0" quat="0.707105 0.707108 0 0">
+      <inertial pos="0.038 0.0042333 0.0040402" quat="0.5 0.5 0.5 0.5 " mass="0.163" diaginertia="6.1372e-5 6.1372e-5 1.071e-4" />
+      <joint name="joint_3" pos="0 0 0" axis="0 -1 0" damping="0.7" frictionloss="0.5"/>
+      <geom pos="0.038 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="0.15 0 1.0 1" mesh="link_3" />
+
+      <body name="link_4" pos="0.076 0 0">
+       <inertial pos="0.0125 6.5684e-07 -0.004272" quat="0.5 0.5 0.5 0.5" mass="0.313" diaginertia=" 2.4182e-4 2.4182e-4 2.0565e-4" />
+       <joint name="joint_4" pos="0 0 0" axis="0 0 1" damping="0.7" frictionloss="0.5"/>
+       <geom pos="0.0125 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="1 1 1 1" mesh="link_4" />
+
+       <body name="link_5" pos="0.102 0 0">
+        <inertial pos="0 2.5298e-07 -0.0038765" quat="0.5 0.5 0.5 0.5" mass="0.534" diaginertia=" 6.4753e-4 6.4753e-4 3.5085e-4" />
+        <joint name="joint_5" pos="0 0 0" axis="-1 0 0" damping="0.7" frictionloss="0.5"/>
+        <geom type="mesh" contype="1" conaffinity="1" group="1" rgba="0.8 0.8 0 1" mesh="link_5" />
+
+        <body name="link_6" pos="0.0275 0 0" quat="0.707105 0.707108 0 0">
+         <inertial pos="0.038 0.0042333 0.0040402" quat="0.5 0.5 0.5 0.5 " mass="0.163" diaginertia="6.1372e-5 6.1372e-5 1.071e-4" />
+         <joint name="joint_6" pos="0 0 0" axis="0 -1 0" damping="0.7" frictionloss="0.5"/>
+         <geom pos="0.038 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="0.15 0 1.0 1" mesh="link_6" />
+
+         <body name="link_7" pos="0.076 0 0">
+          <inertial pos="0.0125 6.5684e-07 -0.004272" quat="0.5 0.5 0.5 0.5" mass="0.313" diaginertia=" 2.4182e-4 2.4182e-4 2.0565e-4" />
+          <joint name="joint_7" pos="0 0 0" axis="0 0 1" damping="0.7" frictionloss="0.5"/>
+          <geom pos="0.0125 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="1 1 1 1" mesh="link_7" />
+
+          <body name="link_8" pos="0.102 0 0">
+           <inertial pos="0 2.5298e-07 -0.0038765" quat="0.5 0.5 0.5 0.5" mass="0.534" diaginertia=" 6.4753e-4 6.4753e-4 3.5085e-4" />
+           <joint name="joint_8" pos="0 0 0" axis="-1 0 0" damping="0.7" frictionloss="0.5"/>
+           <geom type="mesh" contype="1" conaffinity="1" group="1" rgba="0.8 0.8 0 1" mesh="link_8" />
+
+           <body name="link_9" pos="0.0275 0 0" quat="0.707105 0.707108 0 0">
+            <inertial pos="0.038 0.0042333 0.0040402" quat="0.5 0.5 0.5 0.5 " mass="0.163" diaginertia="6.1372e-5 6.1372e-5 1.071e-4" />
+            <joint name="joint_9" pos="0 0 0" axis="0 -1 0" damping="0.7" frictionloss="0.5"/>
+            <geom pos="0.038 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="0.15 0 1.0 1" mesh="link_9" />
+
+            <body name="link_10" pos="0.076 0 0">
+             <inertial pos="0.0125 6.5684e-07 -0.004272" quat="0.5 0.5 0.5 0.5" mass="0.313" diaginertia=" 2.4182e-4 2.4182e-4 2.0565e-4" />
+             <joint name="joint_10" pos="0 0 0" axis="0 0 1" damping="0.7" frictionloss="0.5"/>
+             <geom pos="0.0125 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="1 1 1 1" mesh="link_10" />
+
+             <body name="link_11" pos="0.102 0 0">
+              <inertial pos="0 2.5298e-07 -0.0038765" quat="0.5 0.5 0.5 0.5" mass="0.534" diaginertia=" 6.4753e-4 6.4753e-4 3.5085e-4" />
+              <joint name="joint_11" pos="0 0 0" axis="-1 0 0" damping="0.7" frictionloss="0.5"/>
+              <geom type="mesh" contype="1" conaffinity="1" group="1" rgba="0.8 0.8 0 1" mesh="link_11" />
+
+              <body name="link_12" pos="0.0275 0 0" quat="0.707105 0.707108 0 0">
+               <inertial pos="0.038 0.0042333 0.0040402" quat="0.5 0.5 0.5 0.5 " mass="0.163" diaginertia="6.1372e-5 6.1372e-5 1.071e-4" />
+               <joint name="joint_12" pos="0 0 0" axis="0 -1 0" damping="0.7" frictionloss="0.5"/>
+               <geom pos="0.038 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="0.15 0 1.0 1" mesh="link_12" />
+
+               <body name="link_13" pos="0.076 0 0">
+                <inertial pos="0.0125 6.5684e-07 -0.004272" quat="0.5 0.5 0.5 0.5" mass="0.313" diaginertia=" 2.4182e-4 2.4182e-4 2.0565e-4" />
+                <joint name="joint_13" pos="0 0 0" axis="0 0 1" damping="0.7" frictionloss="0.5"/>
+                <geom pos="0.0125 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="1 1 1 1" mesh="link_13" />
+
+                <body name="link_14" pos="0.102 0 0">
+                 <inertial pos="0 2.5298e-07 -0.0038765" quat="0.5 0.5 0.5 0.5" mass="0.534" diaginertia=" 6.4753e-4 6.4753e-4 3.5085e-4" />
+                 <joint name="joint_14" pos="0 0 0" axis="-1 0 0" damping="0.7" frictionloss="0.5"/>
+                 <geom type="mesh" contype="1" conaffinity="1" group="1" rgba="0.8 0.8 0 1" mesh="link_14" />
+
+                 <body name="link_15" pos="0.0275 0 0" quat="0.707105 0.707108 0 0">
+                  <inertial pos="0.038 0.0042333 0.0040402" quat="0.5 0.5 0.5 0.5 " mass="0.163" diaginertia="6.1372e-5 6.1372e-5 1.071e-4" />
+                  <joint name="joint_15" pos="0 0 0" axis="0 -1 0" damping="0.7" frictionloss="0.5"/>
+                  <geom pos="0.038 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="0.15 0 1.0 1 " mesh="link_15" />
+
+                  <body name="link_16" pos="0.076 0 0">
+                   <inertial pos="0.0125 6.5684e-07 -0.004272" quat="0.5 0.5 0.5 0.5" mass="0.313" diaginertia=" 2.4182e-4 2.4182e-4 2.0565e-4" />
+                   <joint name="joint_16" pos="0 0 0" axis="0 0 1" damping="0.7" frictionloss="0.5"/>
+                   <geom pos="0.0125 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="1 1 1 1" mesh="link_16" />
+
+                   <body name="link_17" pos="0.102 0 0">
+                    <inertial pos="0 2.5298e-07 -0.0038765" quat="0.5 0.5 0.5 0.5" mass="0.534" diaginertia=" 6.4753e-4 6.4753e-4 3.5085e-4" />
+                    <joint name="joint_17" pos="0 0 0" axis="-1 0 0" damping="0.7" frictionloss="0.5"/>
+                    <geom type="mesh" contype="1" conaffinity="1" group="1" rgba="0.8 0.8 0 1" mesh="link_17" />
+
+                    <body name="link_24" pos="0.0275 0 0">
+                     <inertial pos="0.0695 0 0" quat="0.5 0.5 0.5 0.5" mass="0.368" diaginertia="2.2053e-4 2.2053e-4 2.4179e-4" />
+                     <joint name="joint_18" pos="0 0 0" axis="0 0 -1" damping="0.7" frictionloss="0.5"/>
+                     <geom pos="0.0695 0 0" type="mesh" contype="1" conaffinity="1" group="1" rgba="0.15 0 1.0 1" mesh="link_24" />
+
+                    </body>
+                   </body>
+                  </body>
+                 </body>
+                </body>
+               </body>
+              </body>
+             </body>
+            </body>
+           </body>
+          </body>
+         </body>
+        </body>
+       </body>
+      </body>
+     </body>
+    </body>
+   </body>
+  </body>
+ </worldbody>
+
+ <actuator>
+
+  <position name="joint_2_pos"   joint="joint_2" forcerange="-9 9" kp="20" kv="1.2"  />
+  <position name="joint_5_pos"   joint="joint_5" forcerange="-9 9" kp="20" kv="1.2"  />
+  <position name="joint_8_pos"   joint="joint_8" forcerange="-9 9" kp="20" kv="1.2"  />
+  <position name="joint_11_pos"   joint="joint_11" forcerange="-9 9" kp="20" kv="1.2"  />
+  <position name="joint_14_pos"   joint="joint_14" forcerange="-9 9" kp="20" kv="1.2"  />
+  <position name="joint_17_pos"   joint="joint_17" forcerange="-9 9" kp="20" kv="1.2"  />
+
+  <position name="joint_1_pos" ctrllimited="true" joint="joint_1" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+  <position name="joint_3_pos" ctrllimited="true" joint="joint_3" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+
+  <position name="joint_4_pos" ctrllimited="true" joint="joint_4" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+  <position name="joint_6_pos" ctrllimited="true" joint="joint_6" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+
+  <position name="joint_7_pos" ctrllimited="true" joint="joint_7" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+  <position name="joint_9_pos" ctrllimited="true" joint="joint_9" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+
+  <position name="joint_10_pos" ctrllimited="true" joint="joint_10" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+  <position name="joint_12_pos" ctrllimited="true" joint="joint_12" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+
+  <position name="joint_13_pos" ctrllimited="true" joint="joint_13" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+  <position name="joint_15_pos" ctrllimited="true" joint="joint_15" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+
+  <position name="joint_16_pos" ctrllimited="true" joint="joint_16" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+  <position name="joint_18_pos" ctrllimited="true" joint="joint_18" kp="30" kv="1.2"  forcerange="-9 9"  ctrlrange="-1.57 1.57"/>
+
+
+ </actuator>
+
+</mujoco>
