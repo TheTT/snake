@@ -1,16 +1,16 @@
-"""Headless MuJoCo renderer for drive/snake.xml.
+"""Headless MuJoCo renderer for snake.xml.
 
 Control is isolated in `joint_functions.py`.
-Each actuator is driven by a user-editable function f(t) that receives only time.
+All runtime parameters are loaded from script/headless.json.
 """
 
 from __future__ import annotations
 
-import argparse
+import json
 import os
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List
 
 import imageio
 import mujoco
@@ -27,6 +27,9 @@ RESOLUTIONS = {
     "2160p": (3840, 2160),
 }
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+HEADLESS_CONFIG_PATH = SCRIPT_DIR / "headless.json"
+
 
 def _print_progress(current: int, total: int, *, width: int = 32) -> None:
     """Render an in-place terminal progress bar."""
@@ -41,20 +44,44 @@ def _print_progress(current: int, total: int, *, width: int = 32) -> None:
     print(msg, end="", file=sys.stdout, flush=True)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Headless render for snake.xml using time-only joint functions")
-    default_xml = Path(__file__).resolve().parents[1] / "snake.xml"
+def _resolve_path(base_dir: Path, value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else (base_dir / path)
 
-    parser.add_argument("--xml", type=Path, default=default_xml, help="Path to MuJoCo XML model")
-    parser.add_argument("--output", type=Path, default=Path("snake_headless.mp4"), help="Output video path")
-    parser.add_argument("--duration", type=float, default=20.0, help="Motion duration in seconds")
-    parser.add_argument("--settle", type=float, default=2.0, help="Pre-roll settle time in seconds")
-    parser.add_argument("--fps", type=int, default=60, help="Output video FPS")
-    parser.add_argument("--resolution", choices=RESOLUTIONS.keys(), default="720p", help="Output video resolution")
-    parser.add_argument("--camera-distance", type=float, default=1.6, help="Tracking camera distance")
-    parser.add_argument("--camera-azimuth", type=float, default=180.0, help="Tracking camera azimuth")
-    parser.add_argument("--camera-elevation", type=float, default=-25.0, help="Tracking camera elevation")
-    return parser.parse_args()
+
+def _load_config() -> Dict[str, Any]:
+    """Load headless render config from script/headless.json."""
+    with HEADLESS_CONFIG_PATH.open("r", encoding="utf-8") as f:
+        cfg: Dict[str, Any] = json.load(f)
+
+    required = [
+        "xml",
+        "output",
+        "duration",
+        "settle",
+        "fps",
+        "resolution",
+        "camera_distance",
+        "camera_azimuth",
+        "camera_elevation",
+        "sim_timestep",
+        "video_speed",
+    ]
+    missing = [k for k in required if k not in cfg]
+    if missing:
+        raise KeyError(f"Missing keys in {HEADLESS_CONFIG_PATH}: {missing}")
+
+    if cfg["resolution"] not in RESOLUTIONS:
+        raise ValueError(f"Invalid resolution: {cfg['resolution']}")
+
+    if float(cfg["sim_timestep"]) <= 0.0:
+        raise ValueError("sim_timestep must be > 0")
+    if float(cfg["video_speed"]) <= 0.0:
+        raise ValueError("video_speed must be > 0")
+    if int(cfg["fps"]) <= 0:
+        raise ValueError("fps must be > 0")
+
+    return cfg
 
 
 def _actuator_names(model: mujoco.MjModel) -> List[str]:
@@ -113,18 +140,23 @@ def _tracking_camera(model: mujoco.MjModel) -> mujoco.MjvCamera:
     return cam
 
 
-def render_headless(args: argparse.Namespace) -> None:
+def render_headless(cfg: Dict[str, Any]) -> None:
     os.environ.setdefault("MUJOCO_GL", "egl")
 
-    model = mujoco.MjModel.from_xml_path(str(args.xml))
-    data = mujoco.MjData(model)
+    xml_path = _resolve_path(SCRIPT_DIR, str(cfg["xml"]))
+    output_path = _resolve_path(SCRIPT_DIR, str(cfg["output"]))
 
-    width, height = RESOLUTIONS[args.resolution]
-    settle_steps = int(args.settle / model.opt.timestep)
-    motion_steps = int(args.duration / model.opt.timestep)
+    model = mujoco.MjModel.from_xml_path(str(xml_path))
+    data = mujoco.MjData(model)
+    model.opt.timestep = float(cfg["sim_timestep"])
+
+    width, height = RESOLUTIONS[str(cfg["resolution"])]
+    settle_steps = int(float(cfg["settle"]) / model.opt.timestep)
+    motion_steps = int(float(cfg["duration"]) / model.opt.timestep)
     total_steps = settle_steps + motion_steps
-    render_every = max(1, int(round(1.0 / (args.fps * model.opt.timestep))))
+    render_every = max(1, int(round(1.0 / (int(cfg["fps"]) * model.opt.timestep))))
     total_frames = 0 if motion_steps <= 0 else ((motion_steps - 1) // render_every) + 1
+    output_fps = max(1, int(round(int(cfg["fps"]) * float(cfg["video_speed"])) ))
 
     table = _build_actuator_function_table(model)
     actuator_names = _actuator_names(model)
@@ -132,8 +164,9 @@ def render_headless(args: argparse.Namespace) -> None:
     mapped = [actuator_names[i] for i in sorted(table.keys())]
     unmapped = [name for name in actuator_names if name not in JOINT_FUNCTIONS]
 
-    print(f"Model loaded: {args.xml}")
+    print(f"Model loaded: {xml_path}")
     print(f"timestep={model.opt.timestep:.6f}s, nu={model.nu}, nbody={model.nbody}")
+    print(f"video_fps={output_fps} (base_fps={int(cfg['fps'])}, speed={float(cfg['video_speed'])})")
     print(f"Mapped actuators ({len(mapped)}): {mapped}")
     if unmapped:
         print(f"Unmapped actuators will be zeroed ({len(unmapped)}): {unmapped}")
@@ -142,11 +175,11 @@ def render_headless(args: argparse.Namespace) -> None:
         _print_progress(0, total_frames)
 
     cam = _tracking_camera(model)
-    cam.distance = args.camera_distance
-    cam.azimuth = args.camera_azimuth
-    cam.elevation = args.camera_elevation
+    cam.distance = float(cfg["camera_distance"])
+    cam.azimuth = float(cfg["camera_azimuth"])
+    cam.elevation = float(cfg["camera_elevation"])
 
-    with mujoco.Renderer(model, width=width, height=height) as renderer, imageio.get_writer(str(args.output), fps=args.fps) as writer:
+    with mujoco.Renderer(model, width=width, height=height) as renderer, imageio.get_writer(str(output_path), fps=output_fps) as writer:
         renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 1
         written_frames = 0
 
@@ -167,8 +200,8 @@ def render_headless(args: argparse.Namespace) -> None:
     if total_frames > 0:
         print(file=sys.stdout, flush=True)
 
-    print(f"Video saved: {args.output}")
+    print(f"Video saved: {output_path}")
 
 
 if __name__ == "__main__":
-    render_headless(parse_args())
+    render_headless(_load_config())
