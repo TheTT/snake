@@ -10,11 +10,8 @@
 !README.md
 !*.xml
 
-# Allow only mp4 files inside res/.
-!res/
-res/*
-!res/*.mp4
-!res/*.log
+# Ignore runtime outputs under res/.
+res/
 
 # Allow STL assets in meshes/.
 !meshes/
