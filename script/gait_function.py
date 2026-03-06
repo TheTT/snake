@@ -30,12 +30,11 @@ def _build_f() -> Callable[[float, float, int], Vec3f]:
         z = 0.0
 
         if mask & MASK_X:
-            x = ah * math.sin(base)
+            x = 0.0
         if mask & MASK_Y:
-            # sin(base + pi/2) == cos(base), equivalent but cheaper than extra phase add.
             y = av * math.cos(base)
         if mask & MASK_Z:
-            z = 0.0
+            z = ah * math.sin(base)
 
         return x, y, z
 
