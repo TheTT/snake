@@ -1,119 +1,49 @@
-"""Per-joint control functions for snake.xml actuators.
+"""Unified gait interface for snake.xml actuators.
 
-Each function must accept exactly one argument: time t (seconds),
-and return a target joint angle in radians.
-
-Edit these functions to design your gait.
+This module exposes:
+- JOINT_FUNCTIONS: actuator name -> function(t) generated for all joints
 """
 
 from __future__ import annotations
 
-import math
 from typing import Callable, Dict
 
+from gait_function import MASK_X, MASK_Y, MASK_Z, f
 
-# Global gait knobs (optional).
-AMP = 0.6
-OMEGA = 2.5
-PHASE = math.pi / 3.0
-BIAS = 0.0
+N_JOINTS = 18
 
+# Component bitmask: bit0=x, bit1=y, bit2=z.
+MASK_X = 1
+MASK_Y = 2
+MASK_Z = 4
 
-def _wave(t: float, idx: int, *, amp: float = AMP, omega: float = OMEGA, phase: float = PHASE, bias: float = BIAS) -> float:
-    """Default traveling wave used by all joints unless customized."""
-    return bias + amp * math.sin(omega * t - idx * phase)
+# Component index in vec3f.
+IDX_X = 0
+IDX_Y = 1
+IDX_Z = 2
 
+# Axis cycle for joint_1..joint_18: z, -x, -y, z, -x, -y, ...
+# Tuple layout: (component_index, sign, single_component_mask)
+AXIS_CYCLE = (
+    (IDX_Z, 1.0, MASK_Z),
+    (IDX_X, -1.0, MASK_X),
+    (IDX_Y, -1.0, MASK_Y),
+)
 
-def joint_z_1(t: float) -> float:
-    return _wave(t, 1)
+def _make_joint_function(c: float, component_index: int, sign: float, component_mask: int) -> Callable[[float], float]:
+    def _joint_fn(t: float) -> float:
+        # Apply axis mapping and sign correction for negative axes (-x, -y).
+        return sign * f(c, t, component_mask)[component_index]
 
-
-def joint_z_4(t: float) -> float:
-    return _wave(t, 4)
-
-
-def joint_z_7(t: float) -> float:
-    return _wave(t, 7)
-
-
-def joint_z_10(t: float) -> float:
-    return _wave(t, 10)
-
-
-def joint_z_13(t: float) -> float:
-    return _wave(t, 13)
+    return _joint_fn
 
 
-def joint_z_16(t: float) -> float:
-    return _wave(t, 16)
+# Programmatically generate map actuator_name -> function(t).
+JOINT_FUNCTIONS: Dict[str, Callable[[float], float]] = {}
 
-
-def joint_z_18(t: float) -> float:
-    return _wave(t, 18)
-
-
-def joint_x_2(t: float) -> float:
-    return _wave(t, 2)
-
-
-def joint_x_5(t: float) -> float:
-    return _wave(t, 5)
-
-
-def joint_x_8(t: float) -> float:
-    return _wave(t, 8)
-
-
-def joint_x_11(t: float) -> float:
-    return _wave(t, 11)
-
-
-def joint_x_14(t: float) -> float:
-    return _wave(t, 14)
-
-
-def joint_x_17(t: float) -> float:
-    return _wave(t, 17)
-
-
-def joint_y_3(t: float) -> float:
-    return _wave(t, 3)
-
-
-def joint_y_6(t: float) -> float:
-    return _wave(t, 6)
-
-
-def joint_y_9(t: float) -> float:
-    return _wave(t, 9)
-
-
-def joint_y_12(t: float) -> float:
-    return _wave(t, 12)
-
-
-def joint_y_15(t: float) -> float:
-    return _wave(t, 15)
-
-
-# Map actuator name in snake.xml -> function(t).
-JOINT_FUNCTIONS: Dict[str, Callable[[float], float]] = {
-    "joint_2_pos": joint_x_2,
-    "joint_5_pos": joint_x_5,
-    "joint_8_pos": joint_x_8,
-    "joint_11_pos": joint_x_11,
-    "joint_14_pos": joint_x_14,
-    "joint_17_pos": joint_x_17,
-    "joint_3_pos": joint_y_3,
-    "joint_6_pos": joint_y_6,
-    "joint_9_pos": joint_y_9,
-    "joint_12_pos": joint_y_12,
-    "joint_15_pos": joint_y_15,
-    "joint_1_pos": joint_z_1,
-    "joint_4_pos": joint_z_4,
-    "joint_7_pos": joint_z_7,
-    "joint_10_pos": joint_z_10,
-    "joint_13_pos": joint_z_13,
-    "joint_16_pos": joint_z_16,
-    "joint_18_pos": joint_z_18,
-}
+for i in range(1, N_JOINTS + 1):
+    # Normalized body coordinate: c = (i - 1) / (N - 1), with N=18.
+    c = (i - 1) / (N_JOINTS - 1)
+    component_index, sign, component_mask = AXIS_CYCLE[(i - 1) % len(AXIS_CYCLE)]
+    actuator_name = f"joint_{i}_pos"
+    JOINT_FUNCTIONS[actuator_name] = _make_joint_function(c, component_index, sign, component_mask)
