@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import argparse
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
@@ -29,6 +30,7 @@ RESOLUTIONS = {
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 HEADLESS_CONFIG_PATH = SCRIPT_DIR / "headless.json"
+RES_DIR = (SCRIPT_DIR / "../res").resolve()
 
 
 def _print_progress(current: int, total: int, *, width: int = 32) -> None:
@@ -49,6 +51,17 @@ def _resolve_path(base_dir: Path, value: str) -> Path:
     return path if path.is_absolute() else (base_dir / path)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse runtime args not stored in config file."""
+    parser = argparse.ArgumentParser(description="Headless render for snake.xml")
+    parser.add_argument(
+        "--output",
+        default="snake_headless.mp4",
+        help="Output filename only (saved under ../res/)",
+    )
+    return parser.parse_args()
+
+
 def _load_config() -> Dict[str, Any]:
     """Load headless render config from script/headless.json."""
     with HEADLESS_CONFIG_PATH.open("r", encoding="utf-8") as f:
@@ -56,7 +69,6 @@ def _load_config() -> Dict[str, Any]:
 
     required = [
         "xml",
-        "output",
         "duration",
         "settle",
         "fps",
@@ -144,7 +156,9 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     os.environ.setdefault("MUJOCO_GL", "egl")
 
     xml_path = _resolve_path(SCRIPT_DIR, str(cfg["xml"]))
-    output_path = _resolve_path(SCRIPT_DIR, str(cfg["output"]))
+    args = parse_args()
+    output_name = Path(str(args.output)).name
+    output_path = RES_DIR / output_name
 
     model = mujoco.MjModel.from_xml_path(str(xml_path))
     data = mujoco.MjData(model)
@@ -154,9 +168,12 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     settle_steps = int(float(cfg["settle"]) / model.opt.timestep)
     motion_steps = int(float(cfg["duration"]) / model.opt.timestep)
     total_steps = settle_steps + motion_steps
-    render_every = max(1, int(round(1.0 / (int(cfg["fps"]) * model.opt.timestep))))
+    base_fps = int(cfg["fps"])
+    speed = float(cfg["video_speed"])
+    # Keep output fps fixed; increase simulation interval per frame to speed up video.
+    render_every = max(1, int(round(speed / (base_fps * model.opt.timestep))))
     total_frames = 0 if motion_steps <= 0 else ((motion_steps - 1) // render_every) + 1
-    output_fps = max(1, int(round(int(cfg["fps"]) * float(cfg["video_speed"])) ))
+    output_fps = base_fps
 
     table = _build_actuator_function_table(model)
     actuator_names = _actuator_names(model)
@@ -166,7 +183,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
     print(f"Model loaded: {xml_path}")
     print(f"timestep={model.opt.timestep:.6f}s, nu={model.nu}, nbody={model.nbody}")
-    print(f"video_fps={output_fps} (base_fps={int(cfg['fps'])}, speed={float(cfg['video_speed'])})")
+    print(f"video_fps={output_fps} (fixed), speed={speed}, render_every={render_every}")
     print(f"Mapped actuators ({len(mapped)}): {mapped}")
     if unmapped:
         print(f"Unmapped actuators will be zeroed ({len(unmapped)}): {unmapped}")
