@@ -43,13 +43,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _decode_names(names: List[bytes]) -> List[str]:
-    return [n.decode() for n in names]
+def _actuator_names(model: mujoco.MjModel) -> List[str]:
+    """Return actuator names via stable MuJoCo API across versions."""
+    names: List[str] = []
+    for i in range(model.nu):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+        names.append(name if name is not None else f"actuator_{i}")
+    return names
 
 
 def _build_actuator_function_table(model: mujoco.MjModel) -> Dict[int, Callable[[float], float]]:
     """Create mapping actuator index -> function(t) using actuator names."""
-    actuator_names = _decode_names(model.actuator_names)
+    actuator_names = _actuator_names(model)
     table: Dict[int, Callable[[float], float]] = {}
 
     for i, name in enumerate(actuator_names):
@@ -107,7 +112,7 @@ def render_headless(args: argparse.Namespace) -> None:
     render_every = max(1, int(round(1.0 / (args.fps * model.opt.timestep))))
 
     table = _build_actuator_function_table(model)
-    actuator_names = _decode_names(model.actuator_names)
+    actuator_names = _actuator_names(model)
 
     mapped = [actuator_names[i] for i in sorted(table.keys())]
     unmapped = [name for name in actuator_names if name not in JOINT_FUNCTIONS]
