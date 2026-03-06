@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 from typing import Callable, Dict, List
 
@@ -25,6 +26,19 @@ RESOLUTIONS = {
     "1440p": (2560, 1440),
     "2160p": (3840, 2160),
 }
+
+
+def _print_progress(current: int, total: int, *, width: int = 32) -> None:
+    """Render an in-place terminal progress bar."""
+    if total <= 0:
+        return
+
+    current = max(0, min(current, total))
+    ratio = current / total
+    filled = int(ratio * width)
+    bar = "#" * filled + "-" * (width - filled)
+    msg = f"\rRendering video: [{bar}] {current}/{total} ({ratio * 100:5.1f}%)"
+    print(msg, end="", file=sys.stdout, flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -110,6 +124,7 @@ def render_headless(args: argparse.Namespace) -> None:
     motion_steps = int(args.duration / model.opt.timestep)
     total_steps = settle_steps + motion_steps
     render_every = max(1, int(round(1.0 / (args.fps * model.opt.timestep))))
+    total_frames = 0 if motion_steps <= 0 else ((motion_steps - 1) // render_every) + 1
 
     table = _build_actuator_function_table(model)
     actuator_names = _actuator_names(model)
@@ -123,6 +138,9 @@ def render_headless(args: argparse.Namespace) -> None:
     if unmapped:
         print(f"Unmapped actuators will be zeroed ({len(unmapped)}): {unmapped}")
 
+    if total_frames > 0:
+        _print_progress(0, total_frames)
+
     cam = _tracking_camera(model)
     cam.distance = args.camera_distance
     cam.azimuth = args.camera_azimuth
@@ -130,6 +148,7 @@ def render_headless(args: argparse.Namespace) -> None:
 
     with mujoco.Renderer(model, width=width, height=height) as renderer, imageio.get_writer(str(args.output), fps=args.fps) as writer:
         renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 1
+        written_frames = 0
 
         for step in range(total_steps):
             if step >= settle_steps:
@@ -142,6 +161,11 @@ def render_headless(args: argparse.Namespace) -> None:
                 renderer.update_scene(data, camera=cam)
                 frame = renderer.render()
                 writer.append_data(frame)
+                written_frames += 1
+                _print_progress(written_frames, total_frames)
+
+    if total_frames > 0:
+        print(file=sys.stdout, flush=True)
 
     print(f"Video saved: {args.output}")
 
