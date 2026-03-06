@@ -18,7 +18,7 @@ def _build_f() -> Callable[[float, float, int], Vec3f]:
     # f-specific constants (kept internal to this module).
     ah = 0.6
     av = 0.6
-    k = 1.0
+    k = 2.0
     freq = 0.4
 
     def _f(c: float, t: float, mask: int = 7) -> Vec3f:

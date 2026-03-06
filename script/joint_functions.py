@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable, Dict
 
-from gait_function import MASK_X, MASK_Y, MASK_Z, f
+from gait_function import f
 
 N_JOINTS = 18
 
@@ -30,9 +30,27 @@ AXIS_CYCLE = (
     (IDX_Y, MASK_Y),
 )
 
+STARTUP_RAMP_SEC = 1.0
+
+
+def _smoothstep01(x: float) -> float:
+    """C1-smooth interpolation from 0 to 1 for x in [0, 1]."""
+    x = max(0.0, min(1.0, x))
+    return x * x * (3.0 - 2.0 * x)
+
 def _make_joint_function(c: float, component_index: int, component_mask: int) -> Callable[[float], float]:
     def _joint_fn(t: float) -> float:
-        return f(c, t, component_mask)[component_index]
+        if t <= 0.0:
+            return 0.0
+
+        if t < STARTUP_RAMP_SEC:
+            # Smoothly morph from zero to the static pose f(c, t=0).
+            alpha = _smoothstep01(t / STARTUP_RAMP_SEC)
+            target0 = f(c, 0.0, component_mask)[component_index]
+            return alpha * target0
+
+        # After ramp, run gait from local time 0 to ensure continuity at handoff.
+        return f(c, t - STARTUP_RAMP_SEC, component_mask)[component_index]
 
     return _joint_fn
 
