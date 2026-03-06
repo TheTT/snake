@@ -1,0 +1,26 @@
+# Whitelist mode: ignore everything by default.
+*
+
+# Keep directories visible so whitelist rules can work recursively.
+!*/
+
+# Keep Git control files tracked.
+!.gitignore
+!.gitattributes
+!README.md
+
+# Allow only mp4 files inside res/.
+!res/
+res/*
+!res/*.mp4
+!res/*.log
+
+# Allow STL assets in meshes/.
+!meshes/
+meshes/*
+!meshes/*.STL
+
+# Allow Python scripts in script/.
+!script/
+script/*
+!script/*.py
