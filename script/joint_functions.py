@@ -25,15 +25,14 @@ IDX_Z = 2
 # Axis cycle for joint_1..joint_18: z, -x, -y, z, -x, -y, ...
 # Tuple layout: (component_index, sign, single_component_mask)
 AXIS_CYCLE = (
-    (IDX_Z, 1.0, MASK_Z),
-    (IDX_X, -1.0, MASK_X),
-    (IDX_Y, -1.0, MASK_Y),
+    (IDX_Z, MASK_Z),
+    (IDX_X, MASK_X),
+    (IDX_Y, MASK_Y),
 )
 
-def _make_joint_function(c: float, component_index: int, sign: float, component_mask: int) -> Callable[[float], float]:
+def _make_joint_function(c: float, component_index: int, component_mask: int) -> Callable[[float], float]:
     def _joint_fn(t: float) -> float:
-        # Apply axis mapping and sign correction for negative axes (-x, -y).
-        return sign * f(c, t, component_mask)[component_index]
+        return f(c, t, component_mask)[component_index]
 
     return _joint_fn
 
@@ -44,6 +43,6 @@ JOINT_FUNCTIONS: Dict[str, Callable[[float], float]] = {}
 for i in range(1, N_JOINTS + 1):
     # Normalized body coordinate: c = (i - 1) / (N - 1), with N=18.
     c = (i - 1) / (N_JOINTS - 1)
-    component_index, sign, component_mask = AXIS_CYCLE[(i - 1) % len(AXIS_CYCLE)]
+    component_index, component_mask = AXIS_CYCLE[(i - 1) % len(AXIS_CYCLE)]
     actuator_name = f"joint_{i}_pos"
-    JOINT_FUNCTIONS[actuator_name] = _make_joint_function(c, component_index, sign, component_mask)
+    JOINT_FUNCTIONS[actuator_name] = _make_joint_function(c, component_index, component_mask)
