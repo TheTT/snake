@@ -107,6 +107,27 @@ def _apply_free_space_mode(model: mujoco.MjModel, enabled: bool) -> None:
     model.opt.gravity[:] = 0.0
     model.opt.wind[:] = 0.0
     model.opt.disableflags |= int(mujoco.mjtDisableBit.mjDSBL_CONTACT)
+    # Hide and disable the floor geom (visual + contact) when in free-space mode.
+    try:
+        floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, b"floor")
+    except Exception:
+        # mj_name2id may raise if name not found; try with str name for older bindings.
+        try:
+            floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+        except Exception:
+            floor_id = -1
+
+    if floor_id is not None and floor_id >= 0 and floor_id < model.ngeom:
+        # Make invisible by setting alpha to 0 and disable contact
+        try:
+            model.geom_rgba[floor_id, 3] = 0.0
+        except Exception:
+            pass
+        try:
+            model.geom_contype[floor_id] = 0
+            model.geom_conaffinity[floor_id] = 0
+        except Exception:
+            pass
 
 
 def _clear_external_forces(data: mujoco.MjData) -> None:
