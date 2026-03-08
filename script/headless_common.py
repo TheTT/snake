@@ -21,11 +21,7 @@ RES_DIR = (SCRIPT_DIR / "../res").resolve()
 
 def print_progress(current: int, total: int, *, width: int = 32) -> None:
     """Render an in-place terminal progress bar."""
-    if total <= 0:
-        return
-
-    current = max(0, min(current, total))
-    if current == 0:
+    if total <= 0 or current <= 0:
         return
     ratio = current / total
     filled = int(ratio * width)
