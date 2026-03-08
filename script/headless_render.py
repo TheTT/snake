@@ -192,6 +192,83 @@ def _tracking_camera(model: mujoco.MjModel) -> mujoco.MjvCamera:
     return cam
 
 
+def _safe_normalize(v: np.ndarray, eps: float = 1e-9) -> np.ndarray:
+    n = float(np.linalg.norm(v))
+    if n < eps:
+        return np.zeros_like(v)
+    return v / n
+
+
+def _camera_direction_to_az_el(direction: np.ndarray) -> tuple[float, float]:
+    """Convert a world direction vector to MuJoCo camera azimuth/elevation."""
+    d = _safe_normalize(direction)
+    azimuth = float(np.degrees(np.arctan2(d[1], d[0])))
+    elevation = float(np.degrees(np.arcsin(np.clip(d[2], -1.0, 1.0))))
+    return azimuth, elevation
+
+
+def _principal_axis_and_com(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    prev_axis: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Estimate whole-body center of mass and dominant body-distribution axis."""
+    masses = np.asarray(model.body_mass, dtype=np.float64)
+    com_positions = np.asarray(data.xipos, dtype=np.float64)
+
+    total_mass = float(np.sum(masses))
+    if total_mass <= 0.0:
+        center = np.mean(com_positions, axis=0)
+        axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        return center, axis
+
+    center = np.sum(com_positions * masses[:, None], axis=0) / total_mass
+    rel = com_positions - center
+    weighted = rel * np.sqrt(masses[:, None])
+    cov = weighted.T @ weighted
+
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    axis = eigvecs[:, int(np.argmax(eigvals))]
+    axis = _safe_normalize(axis)
+
+    if np.linalg.norm(axis) < 1e-9:
+        axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+
+    # Keep sign continuity so the main view does not flip 180 degrees frame-to-frame.
+    if prev_axis is not None and float(np.dot(axis, prev_axis)) < 0.0:
+        axis = -axis
+
+    return center, axis
+
+
+def _orthogonal_basis(front: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build right-handed orthonormal basis (front, left, top) from front axis."""
+    front_n = _safe_normalize(front)
+    ref = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    if abs(float(np.dot(front_n, ref))) > 0.95:
+        ref = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+    left = _safe_normalize(np.cross(ref, front_n))
+    top = _safe_normalize(np.cross(front_n, left))
+    return front_n, left, top
+
+
+def _set_projection_mode(renderer: mujoco.Renderer, *, orthographic: bool) -> None:
+    """Best-effort toggle for projection type across MuJoCo python versions."""
+    if not orthographic:
+        return
+
+    scene = renderer.scene
+    cameras = getattr(scene, "camera", None)
+    if cameras is None:
+        return
+
+    # Newer bindings expose two GL cameras (stereo). Set both if available.
+    for cam in cameras:
+        if hasattr(cam, "orthographic"):
+            cam.orthographic = 1
+
+
 def render_headless(cfg: Dict[str, Any]) -> None:
     os.environ.setdefault("MUJOCO_GL", "egl")
 
@@ -244,7 +321,29 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     cam.azimuth = float(cfg["camera_azimuth"])
     cam.elevation = float(cfg["camera_elevation"])
 
-    with mujoco.Renderer(model, width=width, height=height) as renderer, imageio.get_writer(str(output_path), fps=output_fps) as writer:
+    view_width = width
+    view_height = height
+    if free_space_mode:
+        view_width = width // 2
+        view_height = height // 2
+
+    persp_cam = _tracking_camera(model)
+    persp_cam.distance = float(cfg["camera_distance"])
+    persp_cam.azimuth = float(cfg["camera_azimuth"])
+    persp_cam.elevation = float(cfg["camera_elevation"])
+
+    dyn_main_cam = mujoco.MjvCamera()
+    dyn_left_cam = mujoco.MjvCamera()
+    dyn_top_cam = mujoco.MjvCamera()
+    for c in (dyn_main_cam, dyn_left_cam, dyn_top_cam):
+        c.type = mujoco.mjtCamera.mjCAMERA_FREE
+        c.fixedcamid = -1
+        c.trackbodyid = -1
+        c.distance = float(cfg["camera_distance"])
+
+    prev_axis: np.ndarray | None = None
+
+    with mujoco.Renderer(model, width=view_width, height=view_height) as renderer, imageio.get_writer(str(output_path), fps=output_fps) as writer:
         renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 1
         written_frames = 0
 
@@ -259,8 +358,40 @@ def render_headless(cfg: Dict[str, Any]) -> None:
             mujoco.mj_step(model, data)
 
             if step >= settle_steps and (step - settle_steps) % render_every == 0:
-                renderer.update_scene(data, camera=cam)
-                frame = renderer.render()
+                if free_space_mode:
+                    com, principal_axis = _principal_axis_and_com(model, data, prev_axis)
+                    prev_axis = principal_axis.copy()
+                    front, left, top = _orthogonal_basis(principal_axis)
+
+                    for c in (dyn_main_cam, dyn_left_cam, dyn_top_cam):
+                        c.lookat[:] = com
+
+                    dyn_main_cam.azimuth, dyn_main_cam.elevation = _camera_direction_to_az_el(front)
+                    dyn_left_cam.azimuth, dyn_left_cam.elevation = _camera_direction_to_az_el(left)
+                    dyn_top_cam.azimuth, dyn_top_cam.elevation = _camera_direction_to_az_el(top)
+
+                    renderer.update_scene(data, camera=dyn_main_cam)
+                    _set_projection_mode(renderer, orthographic=True)
+                    frame_main = renderer.render()
+
+                    renderer.update_scene(data, camera=dyn_left_cam)
+                    _set_projection_mode(renderer, orthographic=True)
+                    frame_left = renderer.render()
+
+                    renderer.update_scene(data, camera=dyn_top_cam)
+                    _set_projection_mode(renderer, orthographic=True)
+                    frame_top = renderer.render()
+
+                    renderer.update_scene(data, camera=persp_cam)
+                    frame_persp = renderer.render()
+
+                    top_row = np.concatenate([frame_main, frame_left], axis=1)
+                    bottom_row = np.concatenate([frame_top, frame_persp], axis=1)
+                    frame = np.concatenate([top_row, bottom_row], axis=0)
+                else:
+                    renderer.update_scene(data, camera=cam)
+                    frame = renderer.render()
+
                 writer.append_data(frame)
                 written_frames += 1
                 _print_progress(written_frames, total_frames)
