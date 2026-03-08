@@ -93,7 +93,26 @@ def _load_config() -> Dict[str, Any]:
     if int(cfg["fps"]) <= 0:
         raise ValueError("fps must be > 0")
 
+    # Optional switch: run the snake in free space with no gravity/contact/external forces.
+    cfg.setdefault("free_space_mode", False)
+
     return cfg
+
+
+def _apply_free_space_mode(model: mujoco.MjModel, enabled: bool) -> None:
+    """Switch environment to a free-space approximation with no external field/contact."""
+    if not enabled:
+        return
+
+    model.opt.gravity[:] = 0.0
+    model.opt.wind[:] = 0.0
+    model.opt.disableflags |= int(mujoco.mjtDisableBit.mjDSBL_CONTACT)
+
+
+def _clear_external_forces(data: mujoco.MjData) -> None:
+    """Ensure no user-applied external wrench/force leaks into dynamics."""
+    data.xfrc_applied[:] = 0.0
+    data.qfrc_applied[:] = 0.0
 
 
 def _actuator_names(model: mujoco.MjModel) -> List[str]:
@@ -163,6 +182,13 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     model = mujoco.MjModel.from_xml_path(str(xml_path))
     data = mujoco.MjData(model)
     model.opt.timestep = float(cfg["sim_timestep"])
+    free_space_mode = bool(cfg.get("free_space_mode", False))
+    _apply_free_space_mode(model, free_space_mode)
+
+    # Start from zero generalized velocity so initial linear/angular momentum is zero.
+    data.qvel[:] = 0.0
+    _clear_external_forces(data)
+    mujoco.mj_forward(model, data)
 
     width, height = RESOLUTIONS[str(cfg["resolution"])]
     settle_steps = int(float(cfg["settle"]) / model.opt.timestep)
@@ -183,6 +209,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
     print(f"Model loaded: {xml_path}")
     print(f"timestep={model.opt.timestep:.6f}s, nu={model.nu}, nbody={model.nbody}")
+    print(f"free_space_mode={free_space_mode}")
     print(f"video_fps={output_fps} (fixed), speed={speed}, render_every={render_every}")
     print(f"Mapped actuators ({len(mapped)}): {mapped}")
     if unmapped:
@@ -201,6 +228,9 @@ def render_headless(cfg: Dict[str, Any]) -> None:
         written_frames = 0
 
         for step in range(total_steps):
+            if free_space_mode:
+                _clear_external_forces(data)
+
             if step >= settle_steps:
                 t = (step - settle_steps) * model.opt.timestep
                 _apply_time_only_controls(model, data, table, t)
