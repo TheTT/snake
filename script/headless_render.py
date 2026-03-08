@@ -47,6 +47,12 @@ def parse_args() -> argparse.Namespace:
         default="snake_headless.mp4",
         help="Output filename only (saved under ../res/)",
     )
+    parser.add_argument(
+        "-s",
+        "--fsm",
+        action="store_true",
+        help="Enable free-space mode (no gravity/contact/external forces)",
+    )
     return parser.parse_args()
 
 
@@ -61,7 +67,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     model = mujoco.MjModel.from_xml_path(str(xml_path))
     data = mujoco.MjData(model)
     model.opt.timestep = float(cfg["sim_timestep"])
-    free_space_mode = bool(cfg.get("free_space_mode", False))
+    free_space_mode = bool(args.fsm)
     view_fov_scale = float(cfg["view_fov_scale"])
     base_fovy, scaled_fovy = apply_global_fov_scale(model, view_fov_scale)
     apply_free_space_mode(model, free_space_mode)

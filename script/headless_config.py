@@ -39,7 +39,6 @@ def load_config() -> Dict[str, Any]:
     if int(cfg["fps"]) <= 0:
         raise ValueError("fps must be > 0")
 
-    cfg.setdefault("free_space_mode", False)
     cfg.setdefault("view_fov_scale", 1.0)
     cfg.setdefault("fsm_split_x_ratio", 0.5)
     cfg.setdefault("fsm_split_y_ratio", 0.5)
