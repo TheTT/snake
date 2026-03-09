@@ -213,7 +213,6 @@ def _plot_joint_angles_mod3(
     """Plot joint angle trajectories with colors by joint-index mod 3.
 
     - black background, white axes/ticks/text
-    - y values folded into [0, 2pi)
     """
     if not times or not joint_angles:
         return
@@ -225,8 +224,6 @@ def _plot_joint_angles_mod3(
         return
 
     times_arr = np.asarray(times, dtype=np.float64)
-    two_pi = float(2.0 * np.pi)
-
     fig, ax = plt.subplots(figsize=(12, 6), dpi=160)
     fig.patch.set_facecolor("black")
     ax.set_facecolor("black")
@@ -234,15 +231,14 @@ def _plot_joint_angles_mod3(
     for idx, angles in enumerate(joint_angles):
         if not angles:
             continue
-        y = np.mod(np.asarray(angles, dtype=np.float64), two_pi)
+        y = np.asarray(angles, dtype=np.float64)
         c_rgba = np.asarray(segment_colors[idx % len(segment_colors)], dtype=np.float64)
         c_rgb = tuple(np.clip(c_rgba[:3], 0.0, 1.0).tolist())
         ax.plot(times_arr, y, color=c_rgb, linewidth=1.0, alpha=0.95)
 
     ax.set_xlim(float(times_arr[0]), float(times_arr[-1]))
-    ax.set_ylim(0.0, two_pi)
     ax.set_xlabel("time (s)", color="white")
-    ax.set_ylabel("angle mod 2pi (rad)", color="white")
+    ax.set_ylabel("angle (rad)", color="white")
     ax.set_title("Joint Angles Colored by Joint Index mod 3", color="white")
 
     for spine in ax.spines.values():
