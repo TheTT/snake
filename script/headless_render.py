@@ -38,6 +38,9 @@ from headless_control import (
 )
 from joint_functions import JOINT_FUNCTIONS
 
+HEAD_TO_FIRST_AXIS_M = 0.083
+TAIL_TO_LAST_AXIS_M = 0.113
+
 
 def _fsm_joint_ids_in_order(model: mujoco.MjModel) -> List[int]:
     """Return joint ids in joint_1_pos..joint_N_pos actuator order."""
@@ -66,11 +69,13 @@ def _hide_scene_model_geoms(scene: mujoco.MjvScene) -> None:
 def _append_joint_polyline(
     scene: mujoco.MjvScene,
     points: Sequence[np.ndarray],
-    rgba: np.ndarray,
+    segment_colors: Sequence[np.ndarray],
     radius: float = 0.008,
 ) -> None:
     """Append capsule segments connecting consecutive 3D points."""
     if len(points) < 2:
+        return
+    if not segment_colors:
         return
 
     for i in range(len(points) - 1):
@@ -90,7 +95,7 @@ def _append_joint_polyline(
             np.zeros(3, dtype=np.float64),
             np.zeros(3, dtype=np.float64),
             np.eye(3, dtype=np.float64).ravel(),
-            rgba,
+            segment_colors[i % len(segment_colors)],
         )
 
         p0_arr = np.asarray(p0, dtype=np.float64).reshape(3)
@@ -110,6 +115,45 @@ def _append_joint_polyline(
                 f"radius={float(radius)}, p0={p0_arr.tolist()}, p1={p1_arr.tolist()}"
             ) from exc
         scene.ngeom += 1
+
+
+def _safe_unit(vec: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(vec))
+    if norm < 1e-12:
+        return np.array([1.0, 0.0, 0.0], dtype=np.float64)
+    return vec / norm
+
+
+def _build_section_polyline_points(
+    joint_axis_points: Sequence[np.ndarray],
+    head_len: float,
+    tail_len: float,
+) -> List[np.ndarray]:
+    """Build section polyline points: head endpoint + all joint-axis points + tail endpoint."""
+    if len(joint_axis_points) < 2:
+        return [np.asarray(p, dtype=np.float64).copy() for p in joint_axis_points]
+
+    anchors = [np.asarray(p, dtype=np.float64).copy() for p in joint_axis_points]
+    head_dir = _safe_unit(anchors[1] - anchors[0])
+    tail_dir = _safe_unit(anchors[-1] - anchors[-2])
+
+    head_point = anchors[0] - float(head_len) * head_dir
+    tail_point = anchors[-1] + float(tail_len) * tail_dir
+
+    return [head_point] + anchors + [tail_point]
+
+
+def _polyline_segment_lengths(points: Sequence[np.ndarray]) -> List[float]:
+    """Return individual segment lengths for consecutive-point polyline."""
+    if len(points) < 2:
+        return []
+
+    out: List[float] = []
+    for i in range(len(points) - 1):
+        p0 = np.asarray(points[i], dtype=np.float64)
+        p1 = np.asarray(points[i + 1], dtype=np.float64)
+        out.append(float(np.linalg.norm(p1 - p0)))
+    return out
 
 
 def _polyline_length(points: Sequence[np.ndarray]) -> float:
@@ -278,9 +322,23 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
     if free_space_mode:
         fsm_joint_ids = _fsm_joint_ids_in_order(model)
-        poly_rgba = np.array([0.1, 1.0, 0.1, 1.0], dtype=np.float32)
-        xml_poly_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
-        xml_poly_len = _polyline_length(xml_poly_points)
+        segment_colors = [
+            np.array([0.1, 0.3, 1.0, 1.0], dtype=np.float32),  # blue
+            np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32),  # white
+            np.array([1.0, 0.9, 0.1, 1.0], dtype=np.float32),  # yellow
+        ]
+
+        xml_joint_axis_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
+        xml_poly_points = _build_section_polyline_points(
+            xml_joint_axis_points,
+            HEAD_TO_FIRST_AXIS_M,
+            TAIL_TO_LAST_AXIS_M,
+        )
+        xml_segment_lengths = _polyline_segment_lengths(xml_poly_points)
+        xml_poly_len = float(sum(xml_segment_lengths))
+        xml_segment_mm = [round(v * 1000.0, 3) for v in xml_segment_lengths]
+        print(f"fsm_segment_lengths_count={len(xml_segment_lengths)}")
+        print(f"fsm_segment_lengths_mm={xml_segment_mm}")
         print(f"fsm_polyline_length_from_xml={xml_poly_len:.6f} m")
 
         with (
@@ -305,7 +363,12 @@ def render_headless(cfg: Dict[str, Any]) -> None:
                 mujoco.mj_step(model, data)
 
                 if step >= settle_steps and (step - settle_steps) % render_every == 0:
-                    poly_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
+                    joint_axis_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
+                    poly_points = _build_section_polyline_points(
+                        joint_axis_points,
+                        HEAD_TO_FIRST_AXIS_M,
+                        TAIL_TO_LAST_AXIS_M,
+                    )
 
                     com, principal_axis = principal_axis_and_com(model, data, prev_axis)
                     prev_axis = principal_axis.copy()
@@ -320,23 +383,23 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
                     set_model_fovy(model, fovy_main)
                     renderer_main.update_scene(data, camera=dyn_main_cam)
-                    _append_joint_polyline(renderer_main.scene, poly_points, poly_rgba)
+                    _append_joint_polyline(renderer_main.scene, poly_points, segment_colors)
                     frame_main = renderer_main.render()
 
                     set_model_fovy(model, fovy_left)
                     renderer_left.update_scene(data, camera=dyn_left_cam)
-                    _append_joint_polyline(renderer_left.scene, poly_points, poly_rgba)
+                    _append_joint_polyline(renderer_left.scene, poly_points, segment_colors)
                     frame_left = renderer_left.render()
 
                     set_model_fovy(model, fovy_top)
                     renderer_top.update_scene(data, camera=dyn_top_cam)
-                    _append_joint_polyline(renderer_top.scene, poly_points, poly_rgba)
+                    _append_joint_polyline(renderer_top.scene, poly_points, segment_colors)
                     frame_top = renderer_top.render()
 
                     set_model_fovy(model, fovy_persp)
                     renderer_persp.update_scene(data, camera=persp_cam)
                     _hide_scene_model_geoms(renderer_persp.scene)
-                    _append_joint_polyline(renderer_persp.scene, poly_points, poly_rgba)
+                    _append_joint_polyline(renderer_persp.scene, poly_points, segment_colors)
                     frame_persp = renderer_persp.render()
 
                     frame = compose_fsm_quad(
