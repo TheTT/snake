@@ -163,6 +163,29 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     clear_external_forces(data)
     mujoco.mj_forward(model, data)
 
+    # --- Sync simulation qpos to commanded initial angles (t=0) to avoid jump ---
+    # For each actuator in JOINT_FUNCTIONS, find mapped joint qpos address and set
+    # it to the command value at t=0. Then run forward kinematics again.
+    for act_name, fn in JOINT_FUNCTIONS.items():
+        act_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, act_name)
+        if act_id < 0:
+            continue
+        try:
+            joint_id = int(model.actuator_trnid[act_id, 0])
+        except Exception:
+            continue
+        if joint_id < 0:
+            continue
+        qpos_addr = int(model.jnt_qposadr[joint_id])
+        try:
+            desired = float(fn(0.0))
+        except Exception:
+            continue
+        # Only set if qpos address is valid
+        if 0 <= qpos_addr < model.nq:
+            data.qpos[qpos_addr] = desired
+    mujoco.mj_forward(model, data)
+
     width, height = RESOLUTIONS[str(cfg["resolution"])]
     settle_steps = int(float(cfg["settle"]) / model.opt.timestep)
     motion_steps = int(float(cfg["duration"]) / model.opt.timestep)
