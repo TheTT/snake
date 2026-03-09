@@ -36,7 +36,7 @@ from headless_control import (
     build_actuator_function_table,
     clear_external_forces,
 )
-from joint_functions import JOINT_FUNCTIONS
+from joint_functions import JOINT_FUNCTIONS, POLYLINE_SEGMENT_LENGTHS_M
 
 HEAD_TO_FIRST_AXIS_M = 0.083
 TAIL_TO_LAST_AXIS_M = 0.113
@@ -126,21 +126,49 @@ def _safe_unit(vec: np.ndarray) -> np.ndarray:
 
 def _build_section_polyline_points(
     joint_axis_points: Sequence[np.ndarray],
-    head_len: float,
-    tail_len: float,
+    segment_lengths: Sequence[float],
 ) -> List[np.ndarray]:
-    """Build section polyline points: head endpoint + all joint-axis points + tail endpoint."""
-    if len(joint_axis_points) < 2:
-        return [np.asarray(p, dtype=np.float64).copy() for p in joint_axis_points]
+    """Build polyline points from manual segment lengths.
 
+    Construction:
+    - segment_lengths has length N+1 for N joints
+    - directions di for segment i are approximated by normalize(A[min(i+1,N-1)] - A[max(i,0)])
+    - start at head point p0 = A0 - L0 * d0, then p_{k+1} = p_k + L_k * d_k
+    """
     anchors = [np.asarray(p, dtype=np.float64).copy() for p in joint_axis_points]
-    head_dir = _safe_unit(anchors[1] - anchors[0])
-    tail_dir = _safe_unit(anchors[-1] - anchors[-2])
+    N = len(anchors)
+    if N == 0:
+        return []
+    if len(segment_lengths) != N + 1:
+        raise ValueError(f"segment_lengths must have length N+1 ({N+1}), got {len(segment_lengths)}")
 
-    head_point = anchors[0] - float(head_len) * head_dir
-    tail_point = anchors[-1] + float(tail_len) * tail_dir
+    def dir_for(i: int) -> np.ndarray:
+        # direction for segment i: use vector between anchors[min(i, N-1)] and anchors[max(i-1, 0)]
+        if i == 0:
+            vec = anchors[1] - anchors[0] if N > 1 else np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        elif i >= N:
+            vec = anchors[-1] - anchors[-2] if N > 1 else np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        else:
+            vec = anchors[i] - anchors[i - 1]
+        return _safe_unit(vec)
 
-    return [head_point] + anchors + [tail_point]
+    points: List[np.ndarray] = []
+    d0 = dir_for(0)
+    p0 = anchors[0] - float(segment_lengths[0]) * d0
+    points.append(p0)
+
+    for i in range(0, N):
+        di = dir_for(i)
+        pi_prev = points[-1]
+        pi = pi_prev + float(segment_lengths[i]) * di
+        points.append(pi)
+
+    # last segment (index N) uses direction dir_for(N)
+    dN = dir_for(N)
+    p_last = points[-1] + float(segment_lengths[N]) * dN
+    points.append(p_last)
+
+    return points
 
 
 def _polyline_segment_lengths(points: Sequence[np.ndarray]) -> List[float]:
@@ -331,8 +359,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
         xml_joint_axis_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
         xml_poly_points = _build_section_polyline_points(
             xml_joint_axis_points,
-            HEAD_TO_FIRST_AXIS_M,
-            TAIL_TO_LAST_AXIS_M,
+            POLYLINE_SEGMENT_LENGTHS_M,
         )
         xml_segment_lengths = _polyline_segment_lengths(xml_poly_points)
         xml_poly_len = float(sum(xml_segment_lengths))
@@ -369,8 +396,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
                     joint_axis_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
                     poly_points = _build_section_polyline_points(
                         joint_axis_points,
-                        HEAD_TO_FIRST_AXIS_M,
-                        TAIL_TO_LAST_AXIS_M,
+                        POLYLINE_SEGMENT_LENGTHS_M,
                     )
 
                     com, principal_axis = principal_axis_and_com(model, data, prev_axis)

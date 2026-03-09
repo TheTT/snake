@@ -13,6 +13,18 @@ from gait_function import zro
 
 N_JOINTS = 18
 
+# Manual polyline segment lengths (meters). Must have length N_JOINTS + 1.
+POLYLINE_SEGMENT_LENGTHS_M = [
+    0.083,
+    0.049, 0.0805, 0.076,
+    0.049, 0.0805, 0.076,
+    0.049, 0.0805, 0.076,
+    0.049, 0.0805, 0.076,
+    0.049, 0.0805, 0.076,
+    0.049, 0.0805,
+    0.113
+]
+
 # Component bitmask: bit0=x, bit1=y, bit2=z.
 MASK_X = 1
 MASK_Y = 2
