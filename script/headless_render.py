@@ -92,17 +92,31 @@ def _append_joint_polyline(
             np.eye(3, dtype=np.float64).ravel(),
             rgba,
         )
-        mujoco.mjv_connector(
-            geom,
-            mujoco.mjtGeom.mjGEOM_CAPSULE,
-            radius,
-            p0[0],
-            p0[1],
-            p0[2],
-            p1[0],
-            p1[1],
-            p1[2],
-        )
+
+        x0 = float(p0[0])
+        y0 = float(p0[1])
+        z0 = float(p0[2])
+        x1 = float(p1[0])
+        y1 = float(p1[1])
+        z1 = float(p1[2])
+
+        try:
+            mujoco.mjv_connector(
+                geom,
+                mujoco.mjtGeom.mjGEOM_CAPSULE,
+                float(radius),
+                x0,
+                y0,
+                z0,
+                x1,
+                y1,
+                z1,
+            )
+        except TypeError as exc:
+            raise TypeError(
+                "mjv_connector failed in _append_joint_polyline with "
+                f"radius={float(radius)}, p0=({x0}, {y0}, {z0}), p1=({x1}, {y1}, {z1})"
+            ) from exc
         scene.ngeom += 1
 
 
