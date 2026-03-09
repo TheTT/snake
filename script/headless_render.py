@@ -358,7 +358,10 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
                 if step >= settle_steps:
                     t = (step - settle_steps) * model.opt.timestep
-                    apply_time_only_controls(model, data, table, t)
+                else:
+                    # Hold commanded initial pose during settle to avoid drift/jump.
+                    t = 0.0
+                apply_time_only_controls(model, data, table, t)
 
                 mujoco.mj_step(model, data)
 
@@ -425,7 +428,10 @@ def render_headless(cfg: Dict[str, Any]) -> None:
             for step in range(total_steps):
                 if step >= settle_steps:
                     t = (step - settle_steps) * model.opt.timestep
-                    apply_time_only_controls(model, data, table, t)
+                else:
+                    # Hold commanded initial pose during settle to avoid drift/jump.
+                    t = 0.0
+                apply_time_only_controls(model, data, table, t)
 
                 mujoco.mj_step(model, data)
 
