@@ -66,6 +66,13 @@ def _hide_scene_model_geoms(scene: mujoco.MjvScene) -> None:
         scene.geoms[i].rgba[3] = 0.0
 
 
+def _dim_scene_model_geoms(scene: mujoco.MjvScene, alpha: float) -> None:
+    """Dim current scene geoms by setting their alpha for this view only."""
+    a = float(alpha)
+    for i in range(scene.ngeom):
+        scene.geoms[i].rgba[3] = a
+
+
 def _append_joint_polyline(
     scene: mujoco.MjvScene,
     points: Sequence[np.ndarray],
@@ -412,22 +419,19 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
                     set_model_fovy(model, fovy_main)
                     renderer_main.update_scene(data, camera=dyn_main_cam)
-                    _append_joint_polyline(renderer_main.scene, poly_points, segment_colors)
                     frame_main = renderer_main.render()
 
                     set_model_fovy(model, fovy_left)
                     renderer_left.update_scene(data, camera=dyn_left_cam)
-                    _append_joint_polyline(renderer_left.scene, poly_points, segment_colors)
                     frame_left = renderer_left.render()
 
                     set_model_fovy(model, fovy_top)
                     renderer_top.update_scene(data, camera=dyn_top_cam)
-                    _append_joint_polyline(renderer_top.scene, poly_points, segment_colors)
                     frame_top = renderer_top.render()
 
                     set_model_fovy(model, fovy_persp)
                     renderer_persp.update_scene(data, camera=persp_cam)
-                    _hide_scene_model_geoms(renderer_persp.scene)
+                    _dim_scene_model_geoms(renderer_persp.scene, 0.15)
                     _append_joint_polyline(renderer_persp.scene, poly_points, segment_colors)
                     frame_persp = renderer_persp.render()
 
