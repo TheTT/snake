@@ -67,4 +67,13 @@ def _build_f() -> Callable[[float, float, int], Vec3f]:
     return _f
 
 
-f = _build_f()
+foo = _build_f()
+
+
+def zro(c: float, t: float, mask: int = 7) -> Vec3f:
+    """Zero gait: every component is always zero.
+
+    This control function ignores `c`, `t`, and `mask` and returns
+    a (0.0, 0.0, 0.0) tuple so every joint angle remains zero.
+    """
+    return 0.0, 0.0, 0.0
