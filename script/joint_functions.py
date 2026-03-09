@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from typing import Callable, Dict, List, TypedDict
 
-from gait_function import zro
+from gait_function import f, zro
 
 N_JOINTS = 18
 
@@ -250,12 +250,12 @@ for i in range(1, N_JOINTS + 1):
         component_mask,
         sign,
         base_offset,
-        zro,
+        f,
         i - 1,
     )
 
 
-def get_theoretical_local_matrices(t: float | None = None, gait_fn: GaitFn = zro) -> List[Mat3]:
+def get_theoretical_local_matrices(gait_fn: GaitFn, t: float | None = None) -> List[Mat3]:
     """Return cached theoretical local coordinate matrices.
 
     If `t` is provided, cache is refreshed at that time before returning.
