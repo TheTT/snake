@@ -44,7 +44,7 @@ JOINT_AXES = [
     "z", "x", "y",
     "z", "x", "y",
     "z", "x", "y",
-    "z", "x", "z",
+    "z", "x", "y",
 ]
 
 # Per-joint direction sign for joint_1..joint_18.
