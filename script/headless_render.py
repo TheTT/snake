@@ -204,6 +204,60 @@ def _polyline_length(points: Sequence[np.ndarray]) -> float:
     return length
 
 
+def _plot_joint_angles_mod3(
+    times: Sequence[float],
+    joint_angles: Sequence[Sequence[float]],
+    output_path: Path,
+    segment_colors: Sequence[np.ndarray],
+) -> None:
+    """Plot joint angle trajectories with colors by joint-index mod 3.
+
+    - black background, white axes/ticks/text
+    - y values folded into [0, 2pi)
+    """
+    if not times or not joint_angles:
+        return
+
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"Skip angle plot: matplotlib import failed ({exc})")
+        return
+
+    times_arr = np.asarray(times, dtype=np.float64)
+    two_pi = float(2.0 * np.pi)
+
+    fig, ax = plt.subplots(figsize=(12, 6), dpi=160)
+    fig.patch.set_facecolor("black")
+    ax.set_facecolor("black")
+
+    for idx, angles in enumerate(joint_angles):
+        if not angles:
+            continue
+        y = np.mod(np.asarray(angles, dtype=np.float64), two_pi)
+        c_rgba = np.asarray(segment_colors[idx % len(segment_colors)], dtype=np.float64)
+        c_rgb = tuple(np.clip(c_rgba[:3], 0.0, 1.0).tolist())
+        ax.plot(times_arr, y, color=c_rgb, linewidth=1.0, alpha=0.95)
+
+    ax.set_xlim(float(times_arr[0]), float(times_arr[-1]))
+    ax.set_ylim(0.0, two_pi)
+    ax.set_xlabel("time (s)", color="white")
+    ax.set_ylabel("angle mod 2pi (rad)", color="white")
+    ax.set_title("Joint Angles Colored by Joint Index mod 3", color="white")
+
+    for spine in ax.spines.values():
+        spine.set_color("white")
+    ax.tick_params(axis="x", colors="white")
+    ax.tick_params(axis="y", colors="white")
+    ax.grid(color="#333333", linewidth=0.6, alpha=0.6)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(output_path, facecolor=fig.get_facecolor())
+    plt.close(fig)
+    print(f"Angle plot saved: {output_path}")
+
+
 def parse_args() -> argparse.Namespace:
     """Parse runtime args not stored in config file."""
     parser = argparse.ArgumentParser(description="Headless render for snake.xml")
@@ -354,14 +408,20 @@ def render_headless(cfg: Dict[str, Any]) -> None:
         c.distance = float(cfg["camera_distance"])
 
     prev_axis: np.ndarray | None = None
+    segment_colors = [
+        np.array([0.1, 0.3, 1.0, 1.0], dtype=np.float32),  # blue
+        np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32),  # white
+        np.array([1.0, 0.9, 0.1, 1.0], dtype=np.float32),  # yellow
+    ]
+
+    # Record actual post-step joint qpos values in joint_1..joint_N order.
+    plot_joint_ids = _fsm_joint_ids_in_order(model)
+    plot_qpos_addrs = [int(model.jnt_qposadr[jid]) for jid in plot_joint_ids]
+    sample_times: List[float] = []
+    sample_angles: List[List[float]] = [[] for _ in plot_qpos_addrs]
 
     if free_space_mode:
         fsm_joint_ids = _fsm_joint_ids_in_order(model)
-        segment_colors = [
-            np.array([0.1, 0.3, 1.0, 1.0], dtype=np.float32),  # blue
-            np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32),  # white
-            np.array([1.0, 0.9, 0.1, 1.0], dtype=np.float32),  # yellow
-        ]
 
         xml_joint_axis_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
         xml_poly_points = _build_section_polyline_points(
@@ -400,6 +460,11 @@ def render_headless(cfg: Dict[str, Any]) -> None:
                 mujoco.mj_step(model, data)
 
                 if step >= settle_steps and (step - settle_steps) % render_every == 0:
+                    sample_times.append(t)
+                    for idx, qaddr in enumerate(plot_qpos_addrs):
+                        if 0 <= qaddr < model.nq:
+                            sample_angles[idx].append(float(data.qpos[qaddr]))
+
                     joint_axis_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
                     poly_points = _build_section_polyline_points(
                         joint_axis_points,
@@ -431,7 +496,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
                     set_model_fovy(model, fovy_persp)
                     renderer_persp.update_scene(data, camera=persp_cam)
-                    _dim_scene_model_geoms(renderer_persp.scene, 0.15)
+                    _dim_scene_model_geoms(renderer_persp.scene, 0.05)
                     _append_joint_polyline(renderer_persp.scene, poly_points, segment_colors)
                     frame_persp = renderer_persp.render()
 
@@ -466,6 +531,11 @@ def render_headless(cfg: Dict[str, Any]) -> None:
                 mujoco.mj_step(model, data)
 
                 if step >= settle_steps and (step - settle_steps) % render_every == 0:
+                    sample_times.append(t)
+                    for idx, qaddr in enumerate(plot_qpos_addrs):
+                        if 0 <= qaddr < model.nq:
+                            sample_angles[idx].append(float(data.qpos[qaddr]))
+
                     renderer.update_scene(data, camera=cam)
                     frame = renderer.render()
 
@@ -475,6 +545,9 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
     if total_frames > 0:
         print(file=sys.stdout, flush=True)
+
+    plot_path = RES_DIR / f"{Path(output_name).stem}_jagl.png"
+    _plot_joint_angles_mod3(sample_times, sample_angles, plot_path, segment_colors)
 
     print(f"Video saved: {output_path}")
 
