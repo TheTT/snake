@@ -10,7 +10,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Sequence
 
 import imageio
 import mujoco
@@ -37,6 +37,73 @@ from headless_control import (
     clear_external_forces,
 )
 from joint_functions import JOINT_FUNCTIONS
+
+
+def _fsm_joint_ids_in_order(model: mujoco.MjModel) -> List[int]:
+    """Return joint ids in joint_1_pos..joint_N_pos actuator order."""
+    ids: List[int] = []
+    i = 1
+    while True:
+        actuator_name = f"joint_{i}_pos"
+        act_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_name)
+        if act_id < 0:
+            break
+
+        joint_id = int(model.actuator_trnid[act_id, 0])
+        if joint_id >= 0:
+            ids.append(joint_id)
+        i += 1
+
+    return ids
+
+
+def _hide_scene_model_geoms(scene: mujoco.MjvScene) -> None:
+    """Hide current scene geoms by setting alpha=0 for this view only."""
+    for i in range(scene.ngeom):
+        scene.geoms[i].rgba[3] = 0.0
+
+
+def _append_joint_polyline(
+    scene: mujoco.MjvScene,
+    points: Sequence[np.ndarray],
+    rgba: np.ndarray,
+    radius: float = 0.008,
+) -> None:
+    """Append capsule segments connecting consecutive 3D points."""
+    if len(points) < 2:
+        return
+
+    for i in range(len(points) - 1):
+        if scene.ngeom >= scene.maxgeom:
+            break
+
+        p0 = np.asarray(points[i], dtype=np.float64)
+        p1 = np.asarray(points[i + 1], dtype=np.float64)
+        dist = float(np.linalg.norm(p1 - p0))
+        if dist < 1e-9:
+            continue
+
+        geom = scene.geoms[scene.ngeom]
+        mujoco.mjv_initGeom(
+            geom,
+            mujoco.mjtGeom.mjGEOM_CAPSULE,
+            np.zeros(3, dtype=np.float64),
+            np.zeros(3, dtype=np.float64),
+            np.eye(3, dtype=np.float64).ravel(),
+            rgba,
+        )
+        mujoco.mjv_connector(
+            geom,
+            mujoco.mjtGeom.mjGEOM_CAPSULE,
+            radius,
+            p0[0],
+            p0[1],
+            p0[2],
+            p1[0],
+            p1[1],
+            p1[2],
+        )
+        scene.ngeom += 1
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,6 +235,9 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     prev_axis: np.ndarray | None = None
 
     if free_space_mode:
+        fsm_joint_ids = _fsm_joint_ids_in_order(model)
+        poly_rgba = np.array([0.1, 1.0, 0.1, 1.0], dtype=np.float32)
+
         with (
             mujoco.Renderer(model, width=w_left, height=h_top) as renderer_main,
             mujoco.Renderer(model, width=w_right, height=h_top) as renderer_left,
@@ -190,6 +260,8 @@ def render_headless(cfg: Dict[str, Any]) -> None:
                 mujoco.mj_step(model, data)
 
                 if step >= settle_steps and (step - settle_steps) % render_every == 0:
+                    poly_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
+
                     com, principal_axis = principal_axis_and_com(model, data, prev_axis)
                     prev_axis = principal_axis.copy()
                     front, left, top = orthogonal_basis(principal_axis)
@@ -203,18 +275,23 @@ def render_headless(cfg: Dict[str, Any]) -> None:
 
                     set_model_fovy(model, fovy_main)
                     renderer_main.update_scene(data, camera=dyn_main_cam)
+                    _append_joint_polyline(renderer_main.scene, poly_points, poly_rgba)
                     frame_main = renderer_main.render()
 
                     set_model_fovy(model, fovy_left)
                     renderer_left.update_scene(data, camera=dyn_left_cam)
+                    _append_joint_polyline(renderer_left.scene, poly_points, poly_rgba)
                     frame_left = renderer_left.render()
 
                     set_model_fovy(model, fovy_top)
                     renderer_top.update_scene(data, camera=dyn_top_cam)
+                    _append_joint_polyline(renderer_top.scene, poly_points, poly_rgba)
                     frame_top = renderer_top.render()
 
                     set_model_fovy(model, fovy_persp)
                     renderer_persp.update_scene(data, camera=persp_cam)
+                    _hide_scene_model_geoms(renderer_persp.scene)
+                    _append_joint_polyline(renderer_persp.scene, poly_points, poly_rgba)
                     frame_persp = renderer_persp.render()
 
                     frame = compose_fsm_quad(
