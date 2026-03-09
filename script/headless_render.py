@@ -106,6 +106,19 @@ def _append_joint_polyline(
         scene.ngeom += 1
 
 
+def _polyline_length(points: Sequence[np.ndarray]) -> float:
+    """Return total length of consecutive-point polyline."""
+    if len(points) < 2:
+        return 0.0
+
+    length = 0.0
+    for i in range(len(points) - 1):
+        p0 = np.asarray(points[i], dtype=np.float64)
+        p1 = np.asarray(points[i + 1], dtype=np.float64)
+        length += float(np.linalg.norm(p1 - p0))
+    return length
+
+
 def parse_args() -> argparse.Namespace:
     """Parse runtime args not stored in config file."""
     parser = argparse.ArgumentParser(description="Headless render for snake.xml")
@@ -237,6 +250,9 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     if free_space_mode:
         fsm_joint_ids = _fsm_joint_ids_in_order(model)
         poly_rgba = np.array([0.1, 1.0, 0.1, 1.0], dtype=np.float32)
+        xml_poly_points = [data.xanchor[jid].copy() for jid in fsm_joint_ids]
+        xml_poly_len = _polyline_length(xml_poly_points)
+        print(f"fsm_polyline_length_from_xml={xml_poly_len:.6f} m")
 
         with (
             mujoco.Renderer(model, width=w_left, height=h_top) as renderer_main,
