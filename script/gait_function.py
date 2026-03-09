@@ -67,7 +67,7 @@ def _build_f() -> Callable[[float, float, int], Vec3f]:
     return _f
 
 
-foo = _build_f()
+f = _build_f()
 
 
 def zro(c: float, t: float, mask: int = 7) -> Vec3f:
