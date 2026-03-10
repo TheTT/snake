@@ -22,11 +22,12 @@ TwistFn = Callable[[float, float], float]
 @dataclass
 class FitConfig:
     startup_ramp_sec: float = 1.0
-        max_iter: int = 3
-        damping: float = 1e-2
-        finite_diff_eps: float = 1e-4
-        integration_samples: int = 5
+    max_iter: int = 3
+    damping: float = 1e-2
+    finite_diff_eps: float = 1e-4
+    integration_samples: int = 5
     lowpass_tau_sec: float = 0.05
+    temporal_reg_weight: float = 1e-2
 
 
 @dataclass
