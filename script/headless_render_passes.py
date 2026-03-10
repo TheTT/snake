@@ -138,7 +138,7 @@ def run_free_space_render_loop(
                     fsm_joint_ids,
                     allowed_axis_indices=(1, 2),  # y/z-axis joints
                     length_m=0.16,
-                    radius=0.003,
+                    radius=0.007,
                     rgba=np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float64),
                 )
                 append_twist_axis_markers(
@@ -147,7 +147,7 @@ def run_free_space_render_loop(
                     data,
                     fsm_joint_ids,
                     twist_length_m=0.1,
-                    twist_radius=0.003,
+                    twist_radius=0.007,
                     twist_base_angle_rad=np.pi / 2.0,
                     twist_rgba=np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float64),
                 )

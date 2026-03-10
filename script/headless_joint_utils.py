@@ -186,7 +186,7 @@ def append_twist_axis_markers(
     joint_ids: Sequence[int],
     *,
     twist_length_m: float = 0.1,
-    twist_radius: float = 0.003,
+    twist_radius: float,
     twist_base_angle_rad: float = np.pi / 2.0,
     twist_rgba: np.ndarray | None = None,
 ) -> None:
