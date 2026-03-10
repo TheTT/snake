@@ -13,7 +13,12 @@ from headless_camera import camera_direction_to_az_el, orthogonal_basis, princip
 from headless_common import print_progress
 from headless_compose import compose_fsm_quad
 from headless_control import apply_time_only_controls, clear_external_forces
-from headless_joint_utils import append_joint_polyline, build_section_polyline_points, dim_scene_model_geoms
+from headless_joint_utils import (
+    append_joint_axis_markers,
+    append_joint_polyline,
+    build_section_polyline_points,
+    dim_scene_model_geoms,
+)
 
 
 ControlTable = Dict[int, Callable[[float], float]]
@@ -125,6 +130,15 @@ def run_free_space_render_loop(
                 renderer_persp.update_scene(data, camera=persp_cam)
                 dim_scene_model_geoms(renderer_persp.scene, 0.05)
                 append_joint_polyline(renderer_persp.scene, poly_points, segment_colors)
+                append_joint_axis_markers(
+                    renderer_persp.scene,
+                    model,
+                    data,
+                    fsm_joint_ids,
+                    allowed_axis_indices=(1, 2),  # y/z-axis joints
+                    length_m=0.12,
+                    radius=0.0015,
+                )
                 frame_persp = renderer_persp.render()
 
                 frame = compose_fsm_quad(

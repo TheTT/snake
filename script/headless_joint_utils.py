@@ -84,6 +84,70 @@ def append_joint_polyline(
         scene.ngeom += 1
 
 
+def append_joint_axis_markers(
+    scene: mujoco.MjvScene,
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    joint_ids: Sequence[int],
+    *,
+    allowed_axis_indices: Sequence[int] = (1, 2),
+    length_m: float = 0.12,
+    radius: float = 0.002,
+    rgba: np.ndarray | None = None,
+) -> None:
+    """Append capsule markers centered at each selected joint anchor along joint axis.
+
+    Axis selection is done in joint-local coordinates via model.jnt_axis.
+    """
+    if rgba is None:
+        rgba = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float64)
+
+    half_len = 0.5 * float(length_m)
+    allowed = set(int(v) for v in allowed_axis_indices)
+
+    for jid in joint_ids:
+        if scene.ngeom >= scene.maxgeom:
+            break
+        if jid < 0 or jid >= model.njnt:
+            continue
+
+        axis_local = np.asarray(model.jnt_axis[jid], dtype=np.float64)
+        axis_local_norm = float(np.linalg.norm(axis_local))
+        if axis_local_norm < 1e-9:
+            continue
+        dominant_axis = int(np.argmax(np.abs(axis_local)))
+        if dominant_axis not in allowed:
+            continue
+
+        anchor = np.asarray(data.xanchor[jid], dtype=np.float64)
+        axis_world = np.asarray(data.xaxis[jid], dtype=np.float64)
+        axis_world_norm = float(np.linalg.norm(axis_world))
+        if axis_world_norm < 1e-9:
+            continue
+        axis_world = axis_world / axis_world_norm
+
+        p0 = anchor - half_len * axis_world
+        p1 = anchor + half_len * axis_world
+
+        geom = scene.geoms[scene.ngeom]
+        mujoco.mjv_initGeom(
+            geom,
+            mujoco.mjtGeom.mjGEOM_CAPSULE,
+            np.zeros(3, dtype=np.float64),
+            np.zeros(3, dtype=np.float64),
+            np.eye(3, dtype=np.float64).ravel(),
+            rgba,
+        )
+        mujoco.mjv_connector(
+            geom,
+            mujoco.mjtGeom.mjGEOM_CAPSULE,
+            float(radius),
+            p0.reshape(3),
+            p1.reshape(3),
+        )
+        scene.ngeom += 1
+
+
 def _safe_unit(vec: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(vec))
     if norm < 1e-12:
