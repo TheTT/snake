@@ -22,10 +22,10 @@ TwistFn = Callable[[float, float], float]
 @dataclass
 class FitConfig:
     startup_ramp_sec: float = 1.0
-    max_iter: int = 8
-    damping: float = 1e-3
-    finite_diff_eps: float = 1e-4
-    integration_samples: int = 11
+        max_iter: int = 3
+        damping: float = 1e-2
+        finite_diff_eps: float = 1e-4
+        integration_samples: int = 5
     lowpass_tau_sec: float = 0.05
 
 
@@ -272,14 +272,12 @@ def solve_shape_for_time(
         jac = np.zeros((r0.size, nvar), dtype=np.float64)
         eps = max(cfg.finite_diff_eps, 1e-8)
 
+        # forward finite difference (one residual eval per var) for speed
         for i in range(nvar):
             vp = v.copy()
-            vm = v.copy()
             vp[i] += eps
-            vm[i] -= eps
             rp = residual(vp)
-            rm = residual(vm)
-            jac[:, i] = (rp - rm) / (2.0 * eps)
+            jac[:, i] = (rp - r0) / eps
 
         lhs = jac.T @ jac + cfg.damping * np.eye(nvar, dtype=np.float64)
         rhs = -(jac.T @ r0)

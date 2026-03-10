@@ -70,10 +70,10 @@ YZ_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a in ("y", "z")]
 
 _FIT_CFG = FitConfig(
     startup_ramp_sec=1.0,
-    max_iter=8,
-    damping=1e-3,
+    max_iter=3,
+    damping=1e-2,
     finite_diff_eps=1e-4,
-    integration_samples=11,
+    integration_samples=5,
     lowpass_tau_sec=0.05,
 )
 _FIT_STATE = create_initial_state(
