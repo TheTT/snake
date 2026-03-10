@@ -148,6 +148,101 @@ def append_joint_axis_markers(
         scene.ngeom += 1
 
 
+def _rotate_vector_about_axis(vec: np.ndarray, axis: np.ndarray, angle_rad: float) -> np.ndarray:
+    """Rotate vector around unit axis using Rodrigues' formula."""
+    k = _safe_unit(np.asarray(axis, dtype=np.float64))
+    v = np.asarray(vec, dtype=np.float64)
+    ca = float(np.cos(angle_rad))
+    sa = float(np.sin(angle_rad))
+    return v * ca + np.cross(k, v) * sa + k * float(np.dot(k, v)) * (1.0 - ca)
+
+
+def _joint_body_axes_world(model: mujoco.MjModel, data: mujoco.MjData, joint_id: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return (x,y,z) body axes in world frame for the body owning this joint."""
+    body_id = int(model.jnt_bodyid[joint_id])
+    if body_id < 0 or body_id >= model.nbody:
+        x_axis = _safe_unit(np.asarray(data.xaxis[joint_id], dtype=np.float64))
+        ref = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        if abs(float(np.dot(x_axis, ref))) > 0.95:
+            ref = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        y_axis = _safe_unit(np.cross(x_axis, ref))
+        z_axis = _safe_unit(np.cross(x_axis, y_axis))
+        return x_axis, y_axis, z_axis
+
+    rot = np.asarray(data.xmat[body_id], dtype=np.float64).reshape(3, 3)
+    x_from_col = _safe_unit(rot[:, 0])
+    x_from_row = _safe_unit(rot[0, :])
+    joint_x = _safe_unit(np.asarray(data.xaxis[joint_id], dtype=np.float64))
+
+    if float(np.dot(x_from_col, joint_x)) >= float(np.dot(x_from_row, joint_x)):
+        return x_from_col, _safe_unit(rot[:, 1]), _safe_unit(rot[:, 2])
+    return x_from_row, _safe_unit(rot[1, :]), _safe_unit(rot[2, :])
+
+
+def append_twist_axis_markers(
+    scene: mujoco.MjvScene,
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    joint_ids: Sequence[int],
+    *,
+    twist_length_m: float = 0.1,
+    twist_radius: float = 0.003,
+    twist_base_angle_rad: float = np.pi / 2.0,
+    twist_rgba: np.ndarray | None = None,
+) -> None:
+    """Append two green twist markers (local y/z) for x-axis joints.
+
+    Each marker starts at the joint midpoint (xanchor) and points along local y or z.
+    The local frame is compensated by -twist_base_angle_rad around local x to cancel
+    the initial fixed x-joint twist offset.
+    """
+    if twist_rgba is None:
+        twist_rgba = np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float64)
+
+    twist_length = float(twist_length_m)
+
+    for joint_id in joint_ids:
+        if scene.ngeom >= scene.maxgeom:
+            break
+        if joint_id < 0 or joint_id >= model.njnt:
+            continue
+
+        axis_local = np.asarray(model.jnt_axis[joint_id], dtype=np.float64)
+        if float(np.linalg.norm(axis_local)) < 1e-9:
+            continue
+        if int(np.argmax(np.abs(axis_local))) != 0:
+            continue
+
+        x_world, y_world, z_world = _joint_body_axes_world(model, data, joint_id)
+        y_twist = _safe_unit(_rotate_vector_about_axis(y_world, x_world, -twist_base_angle_rad))
+        z_twist = _safe_unit(_rotate_vector_about_axis(z_world, x_world, -twist_base_angle_rad))
+        anchor = np.asarray(data.xanchor[joint_id], dtype=np.float64)
+
+        for direction in (y_twist, z_twist):
+            if scene.ngeom >= scene.maxgeom:
+                break
+
+            p0 = anchor
+            p1 = anchor + twist_length * direction
+            geom = scene.geoms[scene.ngeom]
+            mujoco.mjv_initGeom(
+                geom,
+                mujoco.mjtGeom.mjGEOM_CAPSULE,
+                np.zeros(3, dtype=np.float64),
+                np.zeros(3, dtype=np.float64),
+                np.eye(3, dtype=np.float64).ravel(),
+                twist_rgba,
+            )
+            mujoco.mjv_connector(
+                geom,
+                mujoco.mjtGeom.mjGEOM_CAPSULE,
+                float(twist_radius),
+                p0.reshape(3),
+                p1.reshape(3),
+            )
+            scene.ngeom += 1
+
+
 def _safe_unit(vec: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(vec))
     if norm < 1e-12:
