@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Callable, Sequence
 
 import numpy as np
+from scipy.optimize import least_squares
 
 Vec3 = tuple[float, float, float]
 CurveFn = Callable[[float, float], Vec3]
@@ -66,8 +67,44 @@ def _rot_axis(axis_name: str, angle: float) -> np.ndarray:
     raise ValueError(f"Unsupported axis {axis_name}")
 
 
+def _drot_x(a: float) -> np.ndarray:
+    ca, sa = math.cos(a), math.sin(a)
+    return np.array(((0.0, 0.0, 0.0), (0.0, -sa, -ca), (0.0, ca, -sa)), dtype=np.float64)
+
+
+def _drot_y(a: float) -> np.ndarray:
+    ca, sa = math.cos(a), math.sin(a)
+    return np.array(((-sa, 0.0, ca), (0.0, 0.0, 0.0), (-ca, 0.0, -sa)), dtype=np.float64)
+
+
+def _drot_z(a: float) -> np.ndarray:
+    ca, sa = math.cos(a), math.sin(a)
+    return np.array(((-sa, -ca, 0.0), (ca, -sa, 0.0), (0.0, 0.0, 0.0)), dtype=np.float64)
+
+
+def _drot_axis(axis_name: str, angle: float) -> np.ndarray:
+    if axis_name == "x":
+        return _drot_x(angle)
+    if axis_name == "y":
+        return _drot_y(angle)
+    if axis_name == "z":
+        return _drot_z(angle)
+    raise ValueError(f"Unsupported axis {axis_name}")
+
+
 def _rpy_to_mat3(roll: float, pitch: float, yaw: float) -> np.ndarray:
     return _rot_z(yaw) @ _rot_y(pitch) @ _rot_x(roll)
+
+
+def _rpy_partials(roll: float, pitch: float, yaw: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    rz = _rot_z(yaw)
+    ry = _rot_y(pitch)
+    rx = _rot_x(roll)
+    r = rz @ ry @ rx
+    dr = rz @ ry @ _drot_x(roll)
+    dp = rz @ _drot_y(pitch) @ rx
+    dy = _drot_z(yaw) @ ry @ rx
+    return r, dr, dp, dy
 
 
 def cumulative_s(lengths_m: Sequence[float]) -> np.ndarray:
@@ -235,13 +272,18 @@ def solve_shape_for_time(
     state.last_t = float(t)
 
     seg_mid_s = _segment_midpoint_s(lengths_m)
+    tgt = np.array(
+        [_target_point(f_fn, lengths_m, t, float(s), cfg.startup_ramp_sec) for s in seg_mid_s],
+        dtype=np.float64,
+    )
+    yz_count = len(yz_joint_indices_0b)
+    yz_to_joint = [int(j) for j in yz_joint_indices_0b]
+    yz_signs = [float(joint_signs[j]) for j in yz_to_joint]
+    dvecs = [np.array((float(lengths_m[i]), 0.0, 0.0), dtype=np.float64) for i in range(n_joints + 1)]
 
-    def residual(v: np.ndarray) -> np.ndarray:
-        yz_vars = v[: len(yz_joint_indices_0b)]
-        head = v[len(yz_joint_indices_0b):]
-        head_translation = head[:3]
-        head_rpy = head[3:]
-
+    def _theta_and_head(v: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        yz_vars = v[:yz_count]
+        head = v[yz_count:]
         joint_angles = _assemble_joint_angles(
             x_joint_indices_0b,
             yz_joint_indices_0b,
@@ -250,6 +292,12 @@ def solve_shape_for_time(
             yz_vars,
             n_joints,
         )
+        return yz_vars, head, joint_angles
+
+    def residual(v: np.ndarray) -> np.ndarray:
+        _yz_vars, head, joint_angles = _theta_and_head(v)
+        head_translation = head[:3]
+        head_rpy = head[3:]
         points, _frames = forward_points_and_frames(
             joint_angles=joint_angles,
             joint_axes=joint_axes,
@@ -258,39 +306,95 @@ def solve_shape_for_time(
             head_rpy=head_rpy,
         )
         mids = 0.5 * (points[:-1] + points[1:])
-
-        tgt = np.array(
-            [_target_point(f_fn, lengths_m, t, float(s), cfg.startup_ramp_sec) for s in seg_mid_s],
-            dtype=np.float64,
-        )
         return (mids - tgt).reshape(-1)
 
+    def jacobian(v: np.ndarray) -> np.ndarray:
+        _yz_vars, head, joint_angles = _theta_and_head(v)
+        roll, pitch, yaw = float(head[3]), float(head[4]), float(head[5])
+
+        r_head, dr_head, dp_head, dy_head = _rpy_partials(roll, pitch, yaw)
+
+        points = np.zeros((n_joints + 2, 3), dtype=np.float64)
+        points[0] = np.asarray(head[:3], dtype=np.float64)
+
+        rot_pre: list[np.ndarray] = []
+        rot_post: list[np.ndarray] = []
+        joint_rot: list[np.ndarray] = []
+        joint_drot: list[np.ndarray] = []
+
+        pos = points[0].copy()
+        rot = r_head.copy()
+        for i in range(n_joints):
+            rot_pre.append(rot.copy())
+            pos = pos + rot @ dvecs[i]
+            points[i + 1] = pos
+            jr = _rot_axis(joint_axes[i], float(joint_angles[i]))
+            jdr = _drot_axis(joint_axes[i], float(joint_angles[i]))
+            joint_rot.append(jr)
+            joint_drot.append(jdr)
+            rot = rot @ jr
+            rot_post.append(rot.copy())
+
+        points[n_joints + 1] = pos + rot @ dvecs[n_joints]
+
+        nvar = yz_count + 6
+        nres = (n_joints + 1) * 3
+        jac = np.zeros((nres, nvar), dtype=np.float64)
+
+        for col in range(nvar):
+            dp = np.zeros((3,), dtype=np.float64)
+            dR = np.zeros((3, 3), dtype=np.float64)
+
+            if col == yz_count + 0:
+                dp[:] = (1.0, 0.0, 0.0)
+            elif col == yz_count + 1:
+                dp[:] = (0.0, 1.0, 0.0)
+            elif col == yz_count + 2:
+                dp[:] = (0.0, 0.0, 1.0)
+            elif col == yz_count + 3:
+                dR = dr_head.copy()
+            elif col == yz_count + 4:
+                dR = dp_head.copy()
+            elif col == yz_count + 5:
+                dR = dy_head.copy()
+
+            dpoints = np.zeros((n_joints + 2, 3), dtype=np.float64)
+            dpoints[0] = dp
+
+            yz_id = col
+            yz_active = 0 <= yz_id < yz_count
+            yz_joint = yz_to_joint[yz_id] if yz_active else -1
+            yz_scale = yz_signs[yz_id] if yz_active else 0.0
+
+            for i in range(n_joints):
+                dp = dp + dR @ dvecs[i]
+                dpoints[i + 1] = dp
+
+                dtheta = yz_scale if i == yz_joint else 0.0
+                if dtheta != 0.0:
+                    dR = dR @ joint_rot[i] + rot_pre[i] @ joint_drot[i] * dtheta
+                else:
+                    dR = dR @ joint_rot[i]
+
+            dpoints[n_joints + 1] = dp + dR @ dvecs[n_joints]
+            dmids = 0.5 * (dpoints[:-1] + dpoints[1:])
+            jac[:, col] = dmids.reshape(-1)
+
+        return jac
+
     v = state.yz_and_head.copy()
-    for _ in range(cfg.max_iter):
-        r0 = residual(v)
-        nvar = v.size
-        jac = np.zeros((r0.size, nvar), dtype=np.float64)
-        eps = max(cfg.finite_diff_eps, 1e-8)
-
-        for i in range(nvar):
-            vp = v.copy()
-            vm = v.copy()
-            vp[i] += eps
-            vm[i] -= eps
-            rp = residual(vp)
-            rm = residual(vm)
-            jac[:, i] = (rp - rm) / (2.0 * eps)
-
-        lhs = jac.T @ jac + cfg.damping * np.eye(nvar, dtype=np.float64)
-        rhs = -(jac.T @ r0)
-        try:
-            dv = np.linalg.solve(lhs, rhs)
-        except np.linalg.LinAlgError:
-            break
-
-        v = v + dv
-        if float(np.linalg.norm(dv)) < 1e-5:
-            break
+    lsq = least_squares(
+        residual,
+        v,
+        jac=jacobian,
+        method="lm",
+        max_nfev=max(1, int(cfg.max_iter)),
+        ftol=1e-6,
+        xtol=1e-6,
+        gtol=1e-6,
+    )
+    if lsq.x.shape == v.shape and np.all(np.isfinite(lsq.x)):
+        v = lsq.x
 
     state.yz_and_head = v
 

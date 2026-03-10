@@ -7,18 +7,44 @@ Exports:
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import Tuple
 
 Vec3 = Tuple[float, float, float]
 
 
-# Sample flattened helix parameters.
 BODY_LENGTH_M = 1.2
-HELIX_TURNS = 1.6
-HELIX_ANGULAR_SPEED = 0.8  # rad/s
-HELIX_RADIUS_Y = 0.08
-HELIX_RADIUS_Z = 0.03
+
+# Params are loaded from script/gait/f.json.
+_F_JSON_PATH = Path(__file__).resolve().parent / "gait" / "f.json"
+_DEFAULTS = {
+    "ah": 0.15,
+    "av": 0.30,
+    "k": 2.0,
+    "freq": 0.05,
+}
+
+
+def _load_f_params() -> dict[str, float]:
+    params = dict(_DEFAULTS)
+    try:
+        data = json.loads(_F_JSON_PATH.read_text(encoding="utf-8"))
+        for k in ("ah", "av", "k", "freq"):
+            if k in data:
+                params[k] = float(data[k])
+    except (OSError, ValueError, TypeError):
+        # Keep defaults when config is missing or malformed.
+        pass
+    return params
+
+
+_F_PARAMS = _load_f_params()
+HELIX_RADIUS_Z = float(_F_PARAMS["ah"])
+HELIX_RADIUS_Y = float(_F_PARAMS["av"])
+HELIX_TURNS = float(_F_PARAMS["k"])
+HELIX_FREQ_HZ = float(_F_PARAMS["freq"])
 
 
 def f(t: float, s: float) -> Vec3:
@@ -29,7 +55,7 @@ def f(t: float, s: float) -> Vec3:
         s: normalized arc parameter in [0, 1].
     """
     ss = max(0.0, min(1.0, float(s)))
-    phase = 2.0 * math.pi * HELIX_TURNS * ss - HELIX_ANGULAR_SPEED * float(t)
+    phase = 2.0 * math.pi * (HELIX_TURNS * ss - HELIX_FREQ_HZ * float(t))
 
     x = BODY_LENGTH_M * ss
     y = HELIX_RADIUS_Y * math.cos(phase)
