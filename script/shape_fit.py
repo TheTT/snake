@@ -28,6 +28,7 @@ class FitConfig:
     finite_diff_eps: float = 1e-4
     integration_samples: int = 11
     lowpass_tau_sec: float = 0.05
+    temporal_reg_weight: float = 1e-2
 
 
 @dataclass
@@ -294,6 +295,8 @@ def solve_shape_for_time(
         )
         return yz_vars, head, joint_angles
 
+    prev_v = state.yz_and_head.copy()
+
     def residual(v: np.ndarray) -> np.ndarray:
         _yz_vars, head, joint_angles = _theta_and_head(v)
         head_translation = head[:3]
@@ -306,95 +309,41 @@ def solve_shape_for_time(
             head_rpy=head_rpy,
         )
         mids = 0.5 * (points[:-1] + points[1:])
-        return (mids - tgt).reshape(-1)
+        r = (mids - tgt).reshape(-1)
 
-    def jacobian(v: np.ndarray) -> np.ndarray:
-        _yz_vars, head, joint_angles = _theta_and_head(v)
-        roll, pitch, yaw = float(head[3]), float(head[4]), float(head[5])
-
-        r_head, dr_head, dp_head, dy_head = _rpy_partials(roll, pitch, yaw)
-
-        points = np.zeros((n_joints + 2, 3), dtype=np.float64)
-        points[0] = np.asarray(head[:3], dtype=np.float64)
-
-        rot_pre: list[np.ndarray] = []
-        rot_post: list[np.ndarray] = []
-        joint_rot: list[np.ndarray] = []
-        joint_drot: list[np.ndarray] = []
-
-        pos = points[0].copy()
-        rot = r_head.copy()
-        for i in range(n_joints):
-            rot_pre.append(rot.copy())
-            pos = pos + rot @ dvecs[i]
-            points[i + 1] = pos
-            jr = _rot_axis(joint_axes[i], float(joint_angles[i]))
-            jdr = _drot_axis(joint_axes[i], float(joint_angles[i]))
-            joint_rot.append(jr)
-            joint_drot.append(jdr)
-            rot = rot @ jr
-            rot_post.append(rot.copy())
-
-        points[n_joints + 1] = pos + rot @ dvecs[n_joints]
-
-        nvar = yz_count + 6
-        nres = (n_joints + 1) * 3
-        jac = np.zeros((nres, nvar), dtype=np.float64)
-
-        for col in range(nvar):
-            dp = np.zeros((3,), dtype=np.float64)
-            dR = np.zeros((3, 3), dtype=np.float64)
-
-            if col == yz_count + 0:
-                dp[:] = (1.0, 0.0, 0.0)
-            elif col == yz_count + 1:
-                dp[:] = (0.0, 1.0, 0.0)
-            elif col == yz_count + 2:
-                dp[:] = (0.0, 0.0, 1.0)
-            elif col == yz_count + 3:
-                dR = dr_head.copy()
-            elif col == yz_count + 4:
-                dR = dp_head.copy()
-            elif col == yz_count + 5:
-                dR = dy_head.copy()
-
-            dpoints = np.zeros((n_joints + 2, 3), dtype=np.float64)
-            dpoints[0] = dp
-
-            yz_id = col
-            yz_active = 0 <= yz_id < yz_count
-            yz_joint = yz_to_joint[yz_id] if yz_active else -1
-            yz_scale = yz_signs[yz_id] if yz_active else 0.0
-
-            for i in range(n_joints):
-                dp = dp + dR @ dvecs[i]
-                dpoints[i + 1] = dp
-
-                dtheta = yz_scale if i == yz_joint else 0.0
-                if dtheta != 0.0:
-                    dR = dR @ joint_rot[i] + rot_pre[i] @ joint_drot[i] * dtheta
-                else:
-                    dR = dR @ joint_rot[i]
-
-            dpoints[n_joints + 1] = dp + dR @ dvecs[n_joints]
-            dmids = 0.5 * (dpoints[:-1] + dpoints[1:])
-            jac[:, col] = dmids.reshape(-1)
-
-        return jac
+        # temporal regularization: penalize deviation from previous solution
+        w = float(cfg.temporal_reg_weight)
+        if w > 0.0 and prev_v is not None:
+            reg = np.sqrt(w) * (v - prev_v)
+            return np.concatenate((r, reg))
+        return r
 
     v = state.yz_and_head.copy()
-    lsq = least_squares(
-        residual,
-        v,
-        jac=jacobian,
-        method="lm",
-        max_nfev=max(1, int(cfg.max_iter)),
-        ftol=1e-6,
-        xtol=1e-6,
-        gtol=1e-6,
-    )
-    if lsq.x.shape == v.shape and np.all(np.isfinite(lsq.x)):
-        v = lsq.x
+    for _ in range(cfg.max_iter):
+        r0 = residual(v)
+        nvar = v.size
+        jac = np.zeros((r0.size, nvar), dtype=np.float64)
+        eps = max(cfg.finite_diff_eps, 1e-8)
+
+        for i in range(nvar):
+            vp = v.copy()
+            vm = v.copy()
+            vp[i] += eps
+            vm[i] -= eps
+            rp = residual(vp)
+            rm = residual(vm)
+            jac[:, i] = (rp - rm) / (2.0 * eps)
+
+        lhs = jac.T @ jac + cfg.damping * np.eye(nvar, dtype=np.float64)
+        rhs = -(jac.T @ r0)
+        try:
+            dv = np.linalg.solve(lhs, rhs)
+        except np.linalg.LinAlgError:
+            break
+
+        v = v + dv
+        if float(np.linalg.norm(dv)) < 1e-5:
+            break
 
     state.yz_and_head = v
 
