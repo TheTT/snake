@@ -5,7 +5,9 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 
-from jacob_backend import solve_with_jacob_least_squares
+import jacob_backend
+import linear_backend
+import anneal_backend
 from shapefit_geometry import (
     _rot_axis,
     _rpy_to_mat3,
@@ -16,7 +18,7 @@ from shapefit_geometry import (
     x_joint_s_intervals,
 )
 from shapefit_target import build_target_points, integrate_avg_g
-from shapefit_types import CurveFn, FitConfig, FitState, TwistFn
+from shapefit_types import CurveFn, FitConfig, FitState, TwistFn, Backend
 
 
 def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
@@ -38,10 +40,14 @@ def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
             raise ValueError("lengths_m length must be n_joints + 1")
 
         angles = np.asarray(joint_angles_base_x, dtype=np.float64).copy()
+        if angles.size != n_joints:
+            raise ValueError("joint_angles_base_x length must match joint count")
         yz = np.asarray(yz_init, dtype=np.float64)
-        if yz.size > n_joints:
+        if yz.size == n_joints:
+            angles[:] = yz
+        elif yz.size > n_joints:
             raise ValueError("yz_init length cannot exceed joint count")
-        if yz.size > 0:
+        elif yz.size > 0:
             angles[: yz.size] = yz
 
         points = np.zeros((n_joints + 2, 3), dtype=np.float64)
@@ -207,12 +213,23 @@ def solve_shape_for_time(
     precomp = {
         "lengths_m": np.asarray(lengths_m, dtype=np.float64),
         "seg_mid_s": np.asarray(seg_mid_s, dtype=np.float64),
+        "tgt": np.asarray(tgt, dtype=np.float64),
         "twist_filtered": np.asarray(state.twist_filtered, dtype=np.float64).copy(),
         "joint_axes": tuple(joint_axes),
+        "joint_signs": np.asarray(joint_signs, dtype=np.float64),
+        "x_joint_indices_0b": tuple(int(i) for i in x_joint_indices_0b),
+        "yz_joint_indices_0b": tuple(int(i) for i in yz_joint_indices_0b),
         "fk_callbacks": fk_callbacks,
     }
 
-    v = solve_with_jacob_least_squares(
+    backend_map = {
+        Backend.JACOB: jacob_backend.solve_with_jacob_least_squares,
+        Backend.LINEAR: linear_backend.solve_with_linear_placeholder,
+        Backend.ANNEAL: anneal_backend.solve_with_anneal_placeholder,
+    }
+
+    backend_fn = backend_map.get(cfg.backend, jacob_backend.solve_with_jacob_least_squares)
+    v = backend_fn(
         residual_fn=residual,
         v0=state.yz_and_head,
         cfg=cfg,

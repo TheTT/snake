@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
+from enum import Enum
 
 import numpy as np
 
 Vec3 = tuple[float, float, float]
 CurveFn = Callable[[float, float], Vec3]
 TwistFn = Callable[[float, float], float]
+
+
+class Backend(Enum):
+    JACOB = "jacob"
+    LINEAR = "linear"
+    ANNEAL = "anneal"
 
 
 @dataclass
@@ -19,6 +26,7 @@ class FitConfig:
     integration_samples: int = 5
     lowpass_tau_sec: float = 0.05
     temporal_reg_weight: float = 1e-2
+    backend: Backend = Backend.LINEAR
 
 
 @dataclass
