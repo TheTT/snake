@@ -18,7 +18,8 @@ def integrate_avg_g(g_fn: TwistFn, t: float, s_lo: float, s_hi: float, samples: 
     ss = np.linspace(s_lo_f, s_hi_f, n, dtype=np.float64)
     vals = np.array([float(g_fn(t, float(s))) for s in ss], dtype=np.float64)
     vals[~np.isfinite(vals)] = 0.0
-    area = float(np.trapz(vals, ss))
+    ds = np.diff(ss)
+    area = float(0.5 * np.sum((vals[:-1] + vals[1:]) * ds))
     return area / (s_hi_f - s_lo_f)
 
 
