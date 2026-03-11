@@ -165,7 +165,6 @@ def _segment_cost(
     return c
 
 
-# solve_with_linear_placeholder 保持不变（若需要我也可以对它做进一步审查/优化）
 def solve_with_linear_placeholder(
     *,
     residual_fn: ResidualFn,
