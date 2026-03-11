@@ -215,6 +215,8 @@ def solve_shape_for_time(
         "lengths_m": np.asarray(lengths_m, dtype=np.float64),
         "seg_mid_s": np.asarray(seg_mid_s, dtype=np.float64),
         "tgt": np.asarray(tgt, dtype=np.float64),
+        # Provide curve samples in arc-length meters for ACF backend
+        "curve_samples_arc": np.column_stack((np.asarray(seg_mid_s, dtype=np.float64) * float(np.sum(lengths_m)), np.asarray(tgt, dtype=np.float64))),
         "twist_filtered": np.asarray(state.twist_filtered, dtype=np.float64).copy(),
         "joint_axes": tuple(joint_axes),
         "joint_signs": np.asarray(joint_signs, dtype=np.float64),
