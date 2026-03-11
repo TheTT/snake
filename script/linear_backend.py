@@ -53,15 +53,19 @@ def _align_targets(
     aligned = np.asarray(tgt, dtype=np.float64).copy()
     if aligned.shape[0] < 2:
         return aligned
-
-    # 1) Translate curve so f(t,0) neighborhood aligns to head center.
-    aligned = aligned + (head_translation - aligned[0])
+    # New behavior: rotate first (about the curve start), then translate the start
+    # to the head translation. This reduces issues caused by rotating about a point
+    # that may move under translation.
+    f0 = aligned[0].copy()
 
     head_rot = _rpy_to_mat3(float(head_rpy[0]), float(head_rpy[1]), float(head_rpy[2]))
     head_axis = _normalize(head_rot @ np.array((1.0, 0.0, 0.0), dtype=np.float64), np.array((1.0, 0.0, 0.0), dtype=np.float64))
-    tangent = _normalize(aligned[1] - aligned[0], head_axis)
 
-    # 2) Free rotation: align local tangent with head axis.
+    # source tangent (at curve start)
+    src = aligned[1] - aligned[0]
+    tangent = _normalize(src, head_axis)
+
+    # 1) Rotate around curve start so the local tangent aligns with head axis
     c = max(-1.0, min(1.0, float(np.dot(tangent, head_axis))))
     ang = math.acos(c)
     axis = np.cross(tangent, head_axis)
@@ -69,12 +73,16 @@ def _align_targets(
         rot1 = np.eye(3, dtype=np.float64)
     else:
         rot1 = _rot_about_axis(axis, ang)
-    aligned = (rot1 @ (aligned - head_translation).T).T + head_translation
+    aligned = (rot1 @ (aligned - f0).T).T + f0
+
+    # 2) Translate so the rotated start matches head center
+    aligned = aligned + (head_translation - aligned[0])
 
     if aligned.shape[0] < 3:
         return aligned
 
-    # 3) Rotate around head axis to make first joint axis close to orthogonal to local osculating plane normal.
+    # 3) Rotate around head axis (about head_translation) to make the first joint axis
+    # close to orthogonal to the local osculating plane normal.
     d0 = aligned[1] - aligned[0]
     d1 = aligned[2] - aligned[1]
     plane_n = np.cross(d0, d1)
@@ -145,6 +153,7 @@ def solve_with_linear_placeholder(
     lengths_m = np.asarray(precomp.get("lengths_m", []), dtype=np.float64)
     joint_axes = tuple(precomp.get("joint_axes", ()))
     joint_signs = np.asarray(precomp.get("joint_signs", []), dtype=np.float64)
+    joint_signs_seq = [float(x) for x in joint_signs]
     x_joint_indices_0b = tuple(int(x) for x in precomp.get("x_joint_indices_0b", ()))
     yz_joint_indices_0b = tuple(int(y) for y in precomp.get("yz_joint_indices_0b", ()))
     x_twist = np.asarray(precomp.get("twist_filtered", []), dtype=np.float64)
@@ -173,7 +182,7 @@ def solve_with_linear_placeholder(
     joint_angles = assemble_joint_angles(
         x_joint_indices_0b,
         yz_joint_indices_0b,
-        joint_signs,
+        joint_signs_seq,
         x_twist,
         yz_vars,
         len(joint_axes),
@@ -194,6 +203,9 @@ def solve_with_linear_placeholder(
         joint_axes=joint_axes,
     )
 
+    # Track applied deltas per joint and clamp to +/- 90 degrees
+    applied_deltas = np.zeros((len(joint_axes),), dtype=np.float64)
+
     step = max(1e-4, 2.0 * float(cfg.finite_diff_eps))
     n_pass = max(1, int(cfg.max_iter))
 
@@ -209,21 +221,45 @@ def solve_with_linear_placeholder(
             cand_dyz = (step, -step)
             for dyz in cand_dyz:
                 delta_joint = sign * float(dyz)
-                fk_apply_delta(int(joint_idx), delta_joint)
+                # clamp candidate so cumulative applied stays in [-pi/2, pi/2]
+                jidx = int(joint_idx)
+                if 0 <= jidx < applied_deltas.size:
+                    proposed = applied_deltas[jidx] + delta_joint
+                    clamped = float(max(-math.pi / 2.0, min(math.pi / 2.0, proposed)))
+                    actual_delta = clamped - applied_deltas[jidx]
+                else:
+                    actual_delta = delta_joint
+
+                if abs(actual_delta) < 1e-12:
+                    continue
+
+                fk_apply_delta(int(joint_idx), actual_delta)
                 fk_invalidate_from(seg_i)
                 fk_ensure_upto(seg_i + 1)
                 c = _segment_cost(fk_get_midpoint, aligned_tgt, seg_i)
-                fk_apply_delta(int(joint_idx), -delta_joint)
+                fk_apply_delta(int(joint_idx), -actual_delta)
                 fk_invalidate_from(seg_i)
                 if c < best_cost:
                     best_cost = c
-                    best_delta_joint = delta_joint
+                    best_delta_joint = actual_delta
 
             if abs(best_delta_joint) > 0.0:
-                fk_apply_delta(int(joint_idx), best_delta_joint)
-                fk_invalidate_from(seg_i)
-                if abs(sign) > 1e-12:
-                    yz_vars[yz_k] += best_delta_joint / sign
+                jidx = int(joint_idx)
+                # ensure we do not exceed +/- 90 degrees when applying
+                if 0 <= jidx < applied_deltas.size:
+                    proposed = applied_deltas[jidx] + best_delta_joint
+                    clamped = float(max(-math.pi / 2.0, min(math.pi / 2.0, proposed)))
+                    actual_apply = clamped - applied_deltas[jidx]
+                else:
+                    actual_apply = best_delta_joint
+
+                if abs(actual_apply) > 0.0:
+                    fk_apply_delta(int(joint_idx), actual_apply)
+                    fk_invalidate_from(seg_i)
+                    if 0 <= jidx < applied_deltas.size:
+                        applied_deltas[jidx] += actual_apply
+                    if abs(sign) > 1e-12:
+                        yz_vars[yz_k] += actual_apply / sign
 
     v[:n_yz] = yz_vars
     return v
