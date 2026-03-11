@@ -139,11 +139,6 @@ def solve_with_step_placeholder(
 
     yz_var_pos_by_joint = {int(j): idx for idx, j in enumerate(yz_joint_indices)}
 
-    def _primary_segment_for_joint(jidx: int) -> int:
-        # In this FK convention, joint j rotates the frame after segment j,
-        # so the first directly affected segment is j+1.
-        return max(0, min(int(jidx) + 1, n_fk_segments - 1))
-
     def _curve_hint_from_fk_segment(seg_i: int) -> int:
         # Map FK segment index [0, n_fk_segments-1] into curve sample index [0, n_curve-1].
         n_curve = int(curve_pts.shape[0])
@@ -223,16 +218,26 @@ def solve_with_step_placeholder(
 
         return float(best_delta), float(best_geom), int(n_tried), int(n_accepted), int(n_clipped)
 
-    # 第4节(索引3)前一关节是索引2，该日志只跟踪这个关节的退火前后变化。
+    # 第4节(索引3)前一关节是索引2，该日志只跟踪这个关节(若非x轴)的退火前后变化。
     seg4_i = max(0, min(3, n_fk_segments - 1))
     seg4_prev_joint = max(0, seg4_i - 1)
 
     for pass_idx in range(passes):
-        for j in yz_joint_indices:
-            j_int = int(j)
+        # Segment-joint mapping rule:
+        # segment 0 has no previous joint; segment s>=1 maps to previous joint (s-1).
+        for seg_i in range(1, n_fk_segments):
+            j_int = int(seg_i - 1)
+            if j_int < 0 or j_int >= len(joint_axes):
+                continue
+
+            # Only optimize when previous joint is not twist x.
+            axis_name = str(joint_axes[j_int]).lower()
+            if axis_name == "x":
+                continue
+
             sign = float(joint_signs[j_int])
             drive_sign = sign
-            primary_seg_i = _primary_segment_for_joint(j_int)
+            primary_seg_i = int(seg_i)
             curr_geom = _segment_midpoint_distance_sq_to_curve(primary_seg_i)
 
             seg4_before = None
@@ -261,6 +266,7 @@ def solve_with_step_placeholder(
                 seg4_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
                 print(
                     f"[STEP] 第4节前一关节退火(pass={pass_idx + 1}/{passes})后: "
+                    f"seg={seg4_i}, joint={seg4_prev_joint}, axis={axis_name}; "
                     f"中点到曲线距离 调整前={seg4_before:.9e} m, 调整后={seg4_after:.9e} m, "
                     f"delta={seg4_after - seg4_before:+.3e} m; "
                     f"best_delta={best_delta:+.3e} rad; "
