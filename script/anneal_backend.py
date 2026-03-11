@@ -14,6 +14,7 @@ def solve_with_anneal_placeholder(
     residual_fn: ResidualFn,
     v0: np.ndarray,
     cfg: FitConfig,
+    precomp: dict | None = None,
 ) -> np.ndarray:
     """Placeholder annealing backend with the same interface as jacob backend.
 
@@ -22,4 +23,5 @@ def solve_with_anneal_placeholder(
     """
     _ = residual_fn
     _ = cfg
+    _ = precomp
     return np.asarray(v0, dtype=np.float64).copy()

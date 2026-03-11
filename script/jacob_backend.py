@@ -32,8 +32,10 @@ def solve_with_jacob_least_squares(
     residual_fn: ResidualFn,
     v0: np.ndarray,
     cfg: FitConfig,
+    precomp: dict | None = None,
 ) -> np.ndarray:
     """Damped Gauss-Newton backend using finite-difference Jacobian."""
+    _ = precomp
     v = np.asarray(v0, dtype=np.float64).copy()
 
     for _ in range(cfg.max_iter):

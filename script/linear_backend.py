@@ -14,6 +14,7 @@ def solve_with_linear_placeholder(
     residual_fn: ResidualFn,
     v0: np.ndarray,
     cfg: FitConfig,
+    precomp: dict | None = None,
 ) -> np.ndarray:
     """Placeholder linear solver backend with same interface as other backends.
 
@@ -22,4 +23,5 @@ def solve_with_linear_placeholder(
     """
     _ = residual_fn
     _ = cfg
+    _ = precomp
     return np.asarray(v0, dtype=np.float64).copy()

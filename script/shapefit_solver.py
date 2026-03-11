@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
 from jacob_backend import solve_with_jacob_least_squares
 from shapefit_geometry import (
+    _rot_axis,
+    _rpy_to_mat3,
     assemble_joint_angles,
     forward_points_and_frames,
     segment_midpoint_s,
@@ -15,6 +17,123 @@ from shapefit_geometry import (
 )
 from shapefit_target import build_target_points, integrate_avg_g
 from shapefit_types import CurveFn, FitConfig, FitState, TwistFn
+
+
+def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
+    cache: dict[str, Any] = {
+        "initialized": False,
+    }
+
+    def fk_init(
+        head_translation: Sequence[float] | np.ndarray,
+        head_rpy: Sequence[float] | np.ndarray,
+        joint_angles_base_x: Sequence[float] | np.ndarray,
+        yz_init: Sequence[float] | np.ndarray,
+        lengths_m: Sequence[float] | np.ndarray,
+        joint_axes: Sequence[str],
+    ) -> None:
+        lengths = np.asarray(lengths_m, dtype=np.float64)
+        n_joints = len(joint_axes)
+        if lengths.size != n_joints + 1:
+            raise ValueError("lengths_m length must be n_joints + 1")
+
+        angles = np.asarray(joint_angles_base_x, dtype=np.float64).copy()
+        yz = np.asarray(yz_init, dtype=np.float64)
+        if yz.size > n_joints:
+            raise ValueError("yz_init length cannot exceed joint count")
+        if yz.size > 0:
+            angles[: yz.size] = yz
+
+        points = np.zeros((n_joints + 2, 3), dtype=np.float64)
+        frames = np.zeros((n_joints + 1, 3, 3), dtype=np.float64)
+
+        points[0] = np.asarray(head_translation, dtype=np.float64)
+        head_rot = _rpy_to_mat3(float(head_rpy[0]), float(head_rpy[1]), float(head_rpy[2]))
+
+        cache.update(
+            {
+                "initialized": True,
+                "n_joints": n_joints,
+                "joint_axes": tuple(joint_axes),
+                "lengths": lengths,
+                "angles": angles,
+                "points": points,
+                "frames": frames,
+                "head_rot": head_rot,
+                "valid_upto_segment": -1,
+            }
+        )
+
+    def fk_ensure_upto(i: int) -> None:
+        if not cache.get("initialized", False):
+            raise RuntimeError("fk_init must be called before fk_ensure_upto")
+
+        n_joints = int(cache["n_joints"])
+        seg_idx = max(0, min(int(i), n_joints))
+        valid_upto = int(cache["valid_upto_segment"])
+        if seg_idx <= valid_upto:
+            return
+
+        points = cache["points"]
+        frames = cache["frames"]
+        lengths = cache["lengths"]
+        angles = cache["angles"]
+        joint_axes = cache["joint_axes"]
+        head_rot = cache["head_rot"]
+
+        start_seg = valid_upto + 1
+        for seg in range(start_seg, min(seg_idx, n_joints - 1) + 1):
+            rot_before = head_rot if seg == 0 else frames[seg - 1]
+            points[seg + 1] = points[seg] + rot_before @ np.array((float(lengths[seg]), 0.0, 0.0), dtype=np.float64)
+            frames[seg] = rot_before @ _rot_axis(joint_axes[seg], float(angles[seg]))
+
+        if seg_idx == n_joints:
+            if n_joints > 0 and valid_upto < n_joints:
+                tail_rot = frames[n_joints - 1]
+                points[n_joints + 1] = points[n_joints] + tail_rot @ np.array(
+                    (float(lengths[n_joints]), 0.0, 0.0), dtype=np.float64
+                )
+                frames[n_joints] = tail_rot
+
+        cache["valid_upto_segment"] = seg_idx
+
+    def fk_invalidate_from(i: int) -> None:
+        if not cache.get("initialized", False):
+            raise RuntimeError("fk_init must be called before fk_invalidate_from")
+        seg_idx = max(0, min(int(i), int(cache["n_joints"])))
+        cache["valid_upto_segment"] = min(int(cache["valid_upto_segment"]), seg_idx - 1)
+
+    def fk_apply_delta(i: int, delta_rad: float) -> None:
+        if not cache.get("initialized", False):
+            raise RuntimeError("fk_init must be called before fk_apply_delta")
+        j = int(i)
+        n_joints = int(cache["n_joints"])
+        if j < 0 or j >= n_joints:
+            raise IndexError(f"joint index out of range: {j}")
+
+        cache["angles"][j] += float(delta_rad)
+        fk_invalidate_from(j + 1)
+
+    def fk_get_midpoint(i: int) -> np.ndarray:
+        if not cache.get("initialized", False):
+            raise RuntimeError("fk_init must be called before fk_get_midpoint")
+
+        seg_idx = int(i)
+        n_segs = int(cache["n_joints"]) + 1
+        if seg_idx < 0 or seg_idx >= n_segs:
+            raise IndexError(f"segment index out of range: {seg_idx}")
+
+        fk_ensure_upto(seg_idx)
+        points = cache["points"]
+        return 0.5 * (points[seg_idx] + points[seg_idx + 1])
+
+    return {
+        "fk_init": fk_init,
+        "fk_apply_delta": fk_apply_delta,
+        "fk_get_midpoint": fk_get_midpoint,
+        "fk_invalidate_from": fk_invalidate_from,
+        "fk_ensure_upto": fk_ensure_upto,
+    }
 
 
 def solve_shape_for_time(
@@ -57,6 +176,7 @@ def solve_shape_for_time(
 
     seg_mid_s = segment_midpoint_s(lengths_m)
     tgt = build_target_points(f_fn, lengths_m, t, seg_mid_s, cfg.startup_ramp_sec)
+    fk_callbacks = _build_fk_callbacks()
 
     def residual(v: np.ndarray) -> np.ndarray:
         yz_vars = v[: len(yz_joint_indices_0b)]
@@ -84,10 +204,19 @@ def solve_shape_for_time(
 
     # Swap this backend import to anneal_backend.solve_with_anneal_placeholder
     # without touching residual construction logic.
+    precomp = {
+        "lengths_m": np.asarray(lengths_m, dtype=np.float64),
+        "seg_mid_s": np.asarray(seg_mid_s, dtype=np.float64),
+        "twist_filtered": np.asarray(state.twist_filtered, dtype=np.float64).copy(),
+        "joint_axes": tuple(joint_axes),
+        "fk_callbacks": fk_callbacks,
+    }
+
     v = solve_with_jacob_least_squares(
         residual_fn=residual,
         v0=state.yz_and_head,
         cfg=cfg,
+        precomp=precomp,
     )
 
     state.yz_and_head = v
