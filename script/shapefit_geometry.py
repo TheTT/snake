@@ -72,10 +72,6 @@ def x_joint_s_intervals(x_joint_indices_0b: Sequence[int], lengths_m: Sequence[f
     return np.asarray(intervals, dtype=np.float64)
 
 
-def segment_midpoint_s(lengths_m: Sequence[float]) -> np.ndarray:
-    s_nodes = cumulative_s(lengths_m)
-    return 0.5 * (s_nodes[:-1] + s_nodes[1:])
-
 
 def assemble_joint_angles(
     x_joint_indices_0b: Sequence[int],

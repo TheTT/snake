@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 
@@ -9,34 +9,27 @@ import numpy as np
 from shapefit_geometry import (
     assemble_joint_angles,
     forward_points_and_frames,
-    segment_midpoint_s,
     smoothstep01,
     x_joint_s_intervals,
 )
-from shapefit_target import build_target_points, integrate_avg_g, target_point
-from shapefit_types import CurveFn, FitConfig, FitState, TwistFn, Backend
+from shapefit_target import integrate_avg_g
+from shapefit_types import CurveFn, FitConfig, FitState, TwistFn
 
 
-
-
-
-
-def solve_shape_for_time(
+def integrate_twist(
     *,
-    f_fn: CurveFn,
     g_fn: TwistFn,
     t: float,
-    joint_axes: Sequence[str],
-    joint_signs: Sequence[float],
     x_joint_indices_0b: Sequence[int],
-    yz_joint_indices_0b: Sequence[int],
     lengths_m: Sequence[float],
     base_twist_rad: float,
     state: FitState,
     cfg: FitConfig,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    n_joints = len(joint_axes)
+) -> np.ndarray:
+    """Compute per-x-joint twist and update state's low-pass filtered twist.
 
+    Returns the updated `state.twist_filtered`.
+    """
     c1 = 1.0
     if t < cfg.startup_ramp_sec:
         c1 = smoothstep01(max(0.0, t) / cfg.startup_ramp_sec)
@@ -58,9 +51,35 @@ def solve_shape_for_time(
         alpha = math.exp(-dt / max(cfg.lowpass_tau_sec, 1e-6))
     state.twist_filtered = alpha * state.twist_filtered + (1.0 - alpha) * twist_target
     state.last_t = float(t)
+    return np.asarray(state.twist_filtered, dtype=np.float64).copy()
 
-    seg_mid_s = segment_midpoint_s(lengths_m)
-    tgt = build_target_points(f_fn, lengths_m, t, seg_mid_s, cfg.startup_ramp_sec)
+
+
+def solve_shape_for_time(
+    *,
+    f_fn: CurveFn,
+    g_fn: TwistFn,
+    t: float,
+    joint_axes: Sequence[str],
+    joint_signs: Sequence[float],
+    x_joint_indices_0b: Sequence[int],
+    yz_joint_indices_0b: Sequence[int],
+    lengths_m: Sequence[float],
+    base_twist_rad: float,
+    state: FitState,
+    cfg: FitConfig,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    n_joints = len(joint_axes)
+    # integrate and low-pass filter twist x -> updates state.twist_filtered
+    twist_filtered = integrate_twist(
+        g_fn=g_fn,
+        t=t,
+        x_joint_indices_0b=x_joint_indices_0b,
+        lengths_m=lengths_m,
+        base_twist_rad=base_twist_rad,
+        state=state,
+        cfg=cfg,
+    )
 
     # Skip solving for `yz` joints: only integrate x (twist) and pass empty yz
     yz_len = len(yz_joint_indices_0b)
@@ -79,7 +98,7 @@ def solve_shape_for_time(
         x_joint_indices_0b,
         yz_joint_indices_0b,
         joint_signs,
-        state.twist_filtered,
+        twist_filtered,
         yz_vars,
         n_joints,
     )
