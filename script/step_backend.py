@@ -132,6 +132,7 @@ def solve_with_step_placeholder(
     poly_radius = int(precomp.get("step_polyline_radius", auto_radius))
     anneal_iters = int(precomp.get("step_anneal_iters", 16))
     anneal_step_scale = float(precomp.get("step_anneal_step_scale", 2.0))
+    geom_tol = float(precomp.get("step_geom_tol", 1e-12))
     random_seed = precomp.get("random_seed", None)
     if random_seed is not None:
         random.seed(int(random_seed))
@@ -166,16 +167,18 @@ def solve_with_step_placeholder(
         primary_seg_i: int,
         applied_base: float,
         curr_geom_base: float,
-    ) -> tuple[float, float]:
+    ) -> tuple[float, float, int, int, int]:
         """One-joint local search minimizing midpoint distance of its primary segment.
 
-        Returns (best_delta_from_base, best_geom_cost).
+        Returns (best_delta_from_base, best_geom_cost, tried, accepted, clipped).
         """
-        geom_tol = 1e-12
         curr_delta = 0.0
         curr_geom = float(curr_geom_base)
         best_delta = 0.0
         best_geom = float(curr_geom_base)
+        n_tried = 0
+        n_accepted = 0
+        n_clipped = 0
 
         n_iter = max(2, int(anneal_iters))
         for it in range(n_iter):
@@ -191,8 +194,10 @@ def solve_with_step_placeholder(
 
             proposed = float(applied_base + curr_delta + delta_joint)
             if proposed > math.pi / 2 or proposed < -math.pi / 2:
+                n_clipped += 1
                 continue
 
+            n_tried += 1
             fk_apply_delta(j, delta_joint)
             fk_invalidate_from(int(j) + 1)
             new_geom = _segment_midpoint_distance_sq_to_curve(primary_seg_i)
@@ -201,6 +206,7 @@ def solve_with_step_placeholder(
             accept = new_geom < (curr_geom - geom_tol)
 
             if accept:
+                n_accepted += 1
                 curr_delta += delta_joint
                 curr_geom = float(new_geom)
                 if curr_geom < (best_geom - geom_tol):
@@ -215,7 +221,7 @@ def solve_with_step_placeholder(
             fk_apply_delta(j, -curr_delta)
             fk_invalidate_from(int(j) + 1)
 
-        return float(best_delta), float(best_geom)
+        return float(best_delta), float(best_geom), int(n_tried), int(n_accepted), int(n_clipped)
 
     # 第4节(索引3)前一关节是索引2，该日志只跟踪这个关节的退火前后变化。
     seg4_i = max(0, min(3, n_fk_segments - 1))
@@ -233,7 +239,7 @@ def solve_with_step_placeholder(
             if j_int == seg4_prev_joint:
                 seg4_before = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
 
-            best_delta, _best_geom = _anneal_joint_delta(
+            best_delta, _best_geom, n_tried, n_accepted, n_clipped = _anneal_joint_delta(
                 j_int,
                 float(drive_sign),
                 int(primary_seg_i),
@@ -255,7 +261,10 @@ def solve_with_step_placeholder(
                 seg4_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
                 print(
                     f"[STEP] 第4节前一关节退火(pass={pass_idx + 1}/{passes})后: "
-                    f"中点到曲线距离 调整前={seg4_before:.6f} m, 调整后={seg4_after:.6f} m"
+                    f"中点到曲线距离 调整前={seg4_before:.9e} m, 调整后={seg4_after:.9e} m, "
+                    f"delta={seg4_after - seg4_before:+.3e} m; "
+                    f"best_delta={best_delta:+.3e} rad; "
+                    f"tries={n_tried}, accepted={n_accepted}, clipped={n_clipped}"
                 )
 
     v[:n_yz] = yz_vars
