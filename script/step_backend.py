@@ -202,13 +202,17 @@ def solve_with_step_placeholder(
             for local_k, j in enumerate(window):
 
                 sign = joint_signs[j]
+                # DEBUG
+                axis_name = str(joint_axes[int(j)]).lower() if 0 <= int(j) < len(joint_axes) else ""
+                # Experimental switch requested by user: reverse angle increment on y-axis joints.
+                drive_sign = -sign if axis_name == "y" else sign
 
                 best_delta = 0.0
                 best_cost = base_cost
 
                 for dy in (step, -step):
 
-                    delta_joint = sign * dy
+                    delta_joint = drive_sign * dy
 
                     proposed = applied[j] + delta_joint
 
