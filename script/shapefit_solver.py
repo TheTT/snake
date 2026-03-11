@@ -223,6 +223,7 @@ def solve_shape_for_time(
         "curve_samples_n": 200,
         "curve_samples": None,
         "curve_samples_arc": None,
+        "align_func": linear_backend._align_targets,
         "twist_filtered": np.asarray(state.twist_filtered, dtype=np.float64).copy(),
         "joint_axes": tuple(joint_axes),
         "joint_signs": np.asarray(joint_signs, dtype=np.float64),

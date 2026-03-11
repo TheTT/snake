@@ -5,6 +5,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 
+import linear_backend
 from shapefit_geometry import assemble_joint_angles
 from shapefit_types import FitConfig
 
@@ -84,6 +85,15 @@ def solve_with_step_placeholder(
 
     head_translation = head[:3]
     head_rpy = head[3:]
+
+    # Keep target curve in the same world frame convention used by rendering/other backends.
+    if "aligned_curve_samples" in precomp and isinstance(precomp["aligned_curve_samples"], np.ndarray):
+        curve_pts = np.asarray(precomp["aligned_curve_samples"], dtype=np.float64)
+    elif "align_func" in precomp and callable(precomp["align_func"]):
+        curve_pts = np.asarray(precomp["align_func"](curve_pts, head_translation, head_rpy, joint_axes), dtype=np.float64)
+
+    if curve_pts.ndim != 2 or curve_pts.shape[1] != 3 or curve_pts.shape[0] == 0:
+        return v
 
     joint_angles = assemble_joint_angles(
         x_joint_indices,
