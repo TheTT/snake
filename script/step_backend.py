@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 from typing import Callable, Sequence
 
 import numpy as np
@@ -140,6 +141,14 @@ def solve_with_step_placeholder(
     dir_weight = float(precomp.get("step_direction_weight", 0.5 * float(np.mean(lengths) ** 2)))
     downstream_span = int(precomp.get("step_downstream_span", max(6, n_fk_segments // 2)))
     downstream_decay = float(precomp.get("step_downstream_decay", 0.92))
+    anneal_iters = int(precomp.get("step_anneal_iters", 16))
+    anneal_t0 = float(precomp.get("step_anneal_t0", 1e-6))
+    anneal_tmin = float(precomp.get("step_anneal_tmin", 1e-9))
+    anneal_decay = float(precomp.get("step_anneal_decay", 0.85))
+    anneal_step_scale = float(precomp.get("step_anneal_step_scale", 2.0))
+    random_seed = precomp.get("random_seed", None)
+    if random_seed is not None:
+        random.seed(int(random_seed))
 
     def _primary_segment_for_joint(jidx: int) -> int:
         # In this FK convention, joint j rotates the frame after segment j,
@@ -200,6 +209,98 @@ def solve_with_step_placeholder(
             csum += w * segment_cost(seg)
         return float(csum)
 
+    def _window_geom_cost(window_joint_indices: Sequence[int]) -> float:
+        if len(window_joint_indices) == 0:
+            return 0.0
+        primary = [_primary_segment_for_joint(int(j)) for j in window_joint_indices]
+        seg_start = max(0, min(primary))
+        seg_end = min(n_fk_segments - 1, max(primary) + max(0, downstream_span))
+        csum = 0.0
+        for seg in range(seg_start, seg_end + 1):
+            w = float(downstream_decay ** max(0, seg - seg_start))
+            csum += w * _segment_midpoint_distance_sq_to_curve(seg)
+        return float(csum)
+
+    def _anneal_joint_delta(
+        j: int,
+        drive_sign: float,
+        window: Sequence[int],
+        applied_base: float,
+        curr_cost_base: float,
+        curr_geom_base: float,
+    ) -> tuple[float, float, float]:
+        """Local annealing around current state for one joint.
+
+        Returns (best_delta_from_base, best_cost, best_geom_cost).
+        """
+        geom_tol = 1e-12
+        curr_delta = 0.0
+        curr_cost = float(curr_cost_base)
+        curr_geom = float(curr_geom_base)
+        best_delta = 0.0
+        best_cost = float(curr_cost_base)
+        best_geom = float(curr_geom_base)
+
+        n_iter = max(2, int(anneal_iters))
+        decay = min(0.999, max(0.5, float(anneal_decay)))
+        T = max(anneal_tmin, anneal_t0)
+        for it in range(n_iter):
+            frac = (it + 1) / float(n_iter)
+
+            # Start with larger local proposals, then shrink toward the end.
+            scale = 1.0 + anneal_step_scale * (1.0 - frac)
+            trial_step = step * scale
+            if random.random() < 0.35:
+                trial_step = step
+            dsign = -1.0 if random.random() < 0.5 else 1.0
+            delta_joint = float(drive_sign * dsign * trial_step)
+
+            proposed = float(applied_base + curr_delta + delta_joint)
+            if proposed > math.pi / 2 or proposed < -math.pi / 2:
+                continue
+
+            fk_apply_delta(j, delta_joint)
+            fk_invalidate_from(int(j) + 1)
+            new_cost = _window_cost(window)
+            new_geom = _window_geom_cost(window)
+
+            accept = False
+            # Never accept geometric regression in this local search.
+            if new_geom <= curr_geom + geom_tol:
+                # Special annealing rule: always replace on strictly better objective.
+                if new_cost < curr_cost:
+                    accept = True
+                else:
+                    dcost = float(new_cost - curr_cost)
+                    try:
+                        prob = math.exp(-dcost / max(T, 1e-300))
+                    except OverflowError:
+                        prob = 0.0
+                    if random.random() < prob:
+                        accept = True
+
+            if accept:
+                curr_delta += delta_joint
+                curr_cost = float(new_cost)
+                curr_geom = float(new_geom)
+                if (curr_cost < best_cost) and (curr_geom <= best_geom + geom_tol):
+                    best_cost = curr_cost
+                    best_geom = curr_geom
+                    best_delta = curr_delta
+            else:
+                fk_apply_delta(j, -delta_joint)
+                fk_invalidate_from(int(j) + 1)
+
+            # Fast multiplicative cooling (recommended range 0.8~0.9).
+            T = max(anneal_tmin, T * decay)
+
+        # Restore baseline state for caller; caller will apply best_delta once.
+        if abs(curr_delta) > 1e-12:
+            fk_apply_delta(j, -curr_delta)
+            fk_invalidate_from(int(j) + 1)
+
+        return float(best_delta), float(best_cost), float(best_geom)
+
     # Debug print requested by user: segment-4 midpoint distance before/after optimization.
     seg4_i = max(0, min(3, n_fk_segments - 1))  # 1-based "第4节" -> 0-based index 3
     seg4_d_before = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
@@ -210,7 +311,8 @@ def solve_with_step_placeholder(
 
             window = yz_joint_indices[start : start + 3]
 
-            base_cost = _window_cost(window)
+            curr_cost = _window_cost(window)
+            curr_geom_cost = _window_geom_cost(window)
 
             for local_k, j in enumerate(window):
 
@@ -221,33 +323,14 @@ def solve_with_step_placeholder(
                 # drive_sign = -sign if axis_name == "y" else sign
                 drive_sign = sign
 
-                best_delta = 0.0
-                best_cost = base_cost
-
-                for dy in (step, -step):
-
-                    delta_joint = drive_sign * dy
-
-                    proposed = applied[j] + delta_joint
-
-                    if proposed > math.pi / 2:
-                        continue
-                    if proposed < -math.pi / 2:
-                        continue
-
-                    fk_apply_delta(j, delta_joint)
-
-                    fk_invalidate_from(int(j) + 1)
-
-                    c = _window_cost(window)
-
-                    fk_apply_delta(j, -delta_joint)
-
-                    fk_invalidate_from(int(j) + 1)
-
-                    if c < best_cost:
-                        best_cost = c
-                        best_delta = delta_joint
+                best_delta, best_cost, best_geom_cost = _anneal_joint_delta(
+                    int(j),
+                    float(drive_sign),
+                    window,
+                    float(applied[j]),
+                    float(curr_cost),
+                    float(curr_geom_cost),
+                )
 
                 if best_delta != 0.0:
 
@@ -256,6 +339,8 @@ def solve_with_step_placeholder(
                     fk_invalidate_from(int(j) + 1)
 
                     applied[j] += best_delta
+                    curr_cost = best_cost
+                    curr_geom_cost = best_geom_cost
 
                     if abs(sign) > 1e-12:
                         yz_vars[start + local_k] += best_delta / sign
