@@ -144,8 +144,9 @@ def solve_with_step_placeholder(
     anneal_iters = int(precomp.get("step_anneal_iters", 16))
     anneal_t0 = float(precomp.get("step_anneal_t0", 1e-6))
     anneal_tmin = float(precomp.get("step_anneal_tmin", 1e-9))
-    anneal_decay = float(precomp.get("step_anneal_decay", 0.85))
+    anneal_decay = float(precomp.get("step_anneal_decay", 0.666))
     anneal_step_scale = float(precomp.get("step_anneal_step_scale", 2.0))
+    debug_objective = bool(precomp.get("step_debug_objective", False))
     random_seed = precomp.get("random_seed", None)
     if random_seed is not None:
         random.seed(int(random_seed))
@@ -220,6 +221,15 @@ def solve_with_step_placeholder(
             w = float(downstream_decay ** max(0, seg - seg_start))
             csum += w * _segment_midpoint_distance_sq_to_curve(seg)
         return float(csum)
+
+    def _global_objective_cost() -> tuple[float, float]:
+        """Return (objective_with_orientation, pure_geometry) on all FK segments."""
+        obj = 0.0
+        geom = 0.0
+        for seg in range(n_fk_segments):
+            obj += segment_cost(seg)
+            geom += _segment_midpoint_distance_sq_to_curve(seg)
+        return float(obj), float(geom)
 
     def _anneal_joint_delta(
         j: int,
@@ -304,8 +314,19 @@ def solve_with_step_placeholder(
     # Debug print requested by user: segment-4 midpoint distance before/after optimization.
     seg4_i = max(0, min(3, n_fk_segments - 1))  # 1-based "第4节" -> 0-based index 3
     seg4_d_before = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
+    obj_before, geom_before = _global_objective_cost()
 
-    for _ in range(passes):
+    if debug_objective:
+        print(
+            f"[STEP][OBJ] 全局目标(含方向项): 前={obj_before:.9e}; 纯几何项: 前={geom_before:.9e}"
+        )
+
+    for pass_idx in range(passes):
+
+        pass_obj_before = 0.0
+        pass_geom_before = 0.0
+        if debug_objective:
+            pass_obj_before, pass_geom_before = _global_objective_cost()
 
         for start in range(max(1, n_yz - 2)):
 
@@ -345,10 +366,27 @@ def solve_with_step_placeholder(
                     if abs(sign) > 1e-12:
                         yz_vars[start + local_k] += best_delta / sign
 
+        if debug_objective:
+            pass_obj_after, pass_geom_after = _global_objective_cost()
+            print(
+                "[STEP][OBJ] "
+                f"pass={pass_idx + 1}/{passes} "
+                f"目标: {pass_obj_before:.9e} -> {pass_obj_after:.9e} "
+                f"(delta={pass_obj_after - pass_obj_before:+.3e}); "
+                f"几何: {pass_geom_before:.9e} -> {pass_geom_after:.9e} "
+                f"(delta={pass_geom_after - pass_geom_before:+.3e})"
+            )
+
     seg4_d_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
+    obj_after, geom_after = _global_objective_cost()
     print(
         f"[STEP] 第4节中点到曲线距离: 调整前={seg4_d_before:.6f} m, 调整后={seg4_d_after:.6f} m"
     )
+    if debug_objective:
+        print(
+            f"[STEP][OBJ] 全局目标(含方向项): 后={obj_after:.9e} (delta={obj_after - obj_before:+.3e}); "
+            f"纯几何项: 后={geom_after:.9e} (delta={geom_after - geom_before:+.3e})"
+        )
 
     v[:n_yz] = yz_vars
 
