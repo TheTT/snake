@@ -220,15 +220,6 @@ def run_free_space_render_loop(
                     delta = head_anchor - rotated[0]
                     f_points_trans = [p + delta for p in rotated]
 
-                    # Output: purple curve start point, head center, and their distance (one line per frame)
-                    start_pt = f_points_trans[0]
-                    dist = float(np.linalg.norm(start_pt - head_anchor))
-                    print(
-                        f"{start_pt[0]:.6f} {start_pt[1]:.6f} {start_pt[2]:.6f} "
-                        f"{head_anchor[0]:.6f} {head_anchor[1]:.6f} {head_anchor[2]:.6f} "
-                        f"{dist:.6f}"
-                    )
-
                     append_joint_polyline(
                         renderer_persp.scene,
                         f_points_trans,
