@@ -120,7 +120,8 @@ def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
             raise IndexError(f"joint index out of range: {j}")
 
         cache["angles"][j] += float(delta_rad)
-        fk_invalidate_from(j + 1)
+        # Invalidate from j (not j+1): frames[j] depends on angles[j] and must be recomputed.
+        fk_invalidate_from(j)
 
     def fk_get_midpoint(i: int) -> np.ndarray:
         if not cache.get("initialized", False):
@@ -241,13 +242,9 @@ def solve_shape_for_time(
     }
 
     backend_fn = backend_map.get(cfg.backend, jacob_backend.solve_with_jacob_least_squares)
-    # Build uniform arc-length curve samples (in meters) for precomp if possible
-    try:
-        total_length = float(np.sum(lengths_m))
-        n_samples = int(precomp.get("curve_samples_n", 200)) if isinstance(precomp := locals().get('precomp', None), dict) else 200
-    except Exception:
-        total_length = float(np.sum(lengths_m))
-        n_samples = 200
+    # Build uniform arc-length curve samples (in meters) for precomp.
+    total_length = float(np.sum(lengths_m))
+    n_samples = int(precomp.get("curve_samples_n", 200))
 
     s_m = np.linspace(0.0, total_length, max(2, int(n_samples)), dtype=np.float64)
     s_norm = s_m / max(total_length, 1e-12)

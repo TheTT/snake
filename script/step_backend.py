@@ -191,10 +191,8 @@ def solve_with_step_placeholder(
 
                 n_tried += 1
                 fk_apply_delta(j, delta_joint)
-                fk_invalidate_from(int(j) + 1)
                 new_geom = _segment_midpoint_distance_sq_to_curve(primary_seg_i)
                 fk_apply_delta(j, -delta_joint)
-                fk_invalidate_from(int(j) + 1)
 
                 if new_geom < best_trial_geom:
                     best_trial_geom = float(new_geom)
@@ -257,7 +255,6 @@ def solve_with_step_placeholder(
 
             if best_delta != 0.0:
                 fk_apply_delta(j_int, best_delta)
-                fk_invalidate_from(j_int + 1)
                 applied[j_int] += best_delta
 
                 if abs(sign) > 1e-12:
