@@ -146,7 +146,7 @@ def solve_with_step_placeholder(
     anneal_tmin = float(precomp.get("step_anneal_tmin", 1e-9))
     anneal_decay = float(precomp.get("step_anneal_decay", 0.666))
     anneal_step_scale = float(precomp.get("step_anneal_step_scale", 2.0))
-    debug_objective = bool(precomp.get("step_debug_objective", False))
+    debug_objective = bool(precomp.get("step_debug_objective", True))  # DEBUG
     random_seed = precomp.get("random_seed", None)
     if random_seed is not None:
         random.seed(int(random_seed))
@@ -274,20 +274,8 @@ def solve_with_step_placeholder(
             new_cost = _window_cost(window)
             new_geom = _window_geom_cost(window)
 
-            accept = False
-            # Never accept geometric regression in this local search.
-            if new_geom <= curr_geom + geom_tol:
-                # Special annealing rule: always replace on strictly better objective.
-                if new_cost < curr_cost:
-                    accept = True
-                else:
-                    dcost = float(new_cost - curr_cost)
-                    try:
-                        prob = math.exp(-dcost / max(T, 1e-300))
-                    except OverflowError:
-                        prob = 0.0
-                    if random.random() < prob:
-                        accept = True
+            # Only accept if geometry does not regress and objective strictly decreases.
+            accept = (new_geom <= curr_geom + geom_tol) and (new_cost < curr_cost)
 
             if accept:
                 curr_delta += delta_joint
