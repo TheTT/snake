@@ -166,15 +166,71 @@ def run_free_space_render_loop(
                         np.asarray(f_curve_fn(float(t), float(sv)), dtype=np.float64)
                         for sv in s_samples
                     ]
-                    # 输出紫色折线的总长度（不跟换行符）
-                    total_len = 0.0
-                    for i in range(len(f_points) - 1):
-                        total_len += float(np.linalg.norm(f_points[i + 1] - f_points[i]))
-                    # 按需格式化为小数并不换行输出
-                    print(f"{total_len:.6f}", end="", flush=True)
+                    # 把紫色折线平移+旋转到与中轴线视觉上贴近：
+                    # 1) 以折线起点为旋转中心，将起始切向量对齐到第一段关节轴方向
+                    # 2) 将旋转后的起点平移到 head 节心
+                    f0 = f_points[0].copy()
+                    # head anchor 使用第一个关节的 xanchor
+                    head_anchor = np.asarray(joint_axis_points[0], dtype=np.float64)
+
+                    # 目标方向：第一个关节到第二个关节的向量（若存在）
+                    if len(joint_axis_points) > 1:
+                        tgt_dir = np.asarray(joint_axis_points[1], dtype=np.float64) - np.asarray(joint_axis_points[0], dtype=np.float64)
+                    else:
+                        tgt_dir = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+                    tgt_norm = float(np.linalg.norm(tgt_dir))
+                    if tgt_norm < 1e-9:
+                        tgt_dir = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+                    else:
+                        tgt_dir = tgt_dir / tgt_norm
+
+                    # 源方向：f 的第一个切向量
+                    if len(f_points) > 1:
+                        src_dir = f_points[1] - f_points[0]
+                    else:
+                        src_dir = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+                    src_norm = float(np.linalg.norm(src_dir))
+                    if src_norm < 1e-9:
+                        src_dir = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+                    else:
+                        src_dir = src_dir / src_norm
+
+                    cross = np.cross(src_dir, tgt_dir)
+                    cross_norm = float(np.linalg.norm(cross))
+                    if cross_norm < 1e-9:
+                        angle = 0.0
+                        axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+                    else:
+                        axis = cross / cross_norm
+                        angle = float(np.arccos(np.clip(float(np.dot(src_dir, tgt_dir)), -1.0, 1.0)))
+
+                    def _rodrigues_rotate(v: np.ndarray, k: np.ndarray, theta: float) -> np.ndarray:
+                        ca = float(np.cos(theta))
+                        sa = float(np.sin(theta))
+                        return v * ca + np.cross(k, v) * sa + k * float(np.dot(k, v)) * (1.0 - ca)
+
+                    rotated = []
+                    for p in f_points:
+                        v = p - f0
+                        v_rot = _rodrigues_rotate(v, axis, angle)
+                        rotated.append(v_rot + f0)
+
+                    # 平移到 head_anchor
+                    delta = head_anchor - rotated[0]
+                    f_points_trans = [p + delta for p in rotated]
+
+                    # 输出：紫色折线起点、head 节中心、两者间距离（每帧一行）
+                    start_pt = f_points_trans[0]
+                    dist = float(np.linalg.norm(start_pt - head_anchor))
+                    print(
+                        f"{start_pt[0]:.6f} {start_pt[1]:.6f} {start_pt[2]:.6f} "
+                        f"{head_anchor[0]:.6f} {head_anchor[1]:.6f} {head_anchor[2]:.6f} "
+                        f"{dist:.6f}"
+                    )
+
                     append_joint_polyline(
                         renderer_persp.scene,
-                        f_points,
+                        f_points_trans,
                         [np.array([0.75, 0.2, 0.95, 1.0], dtype=np.float32)],
                         radius=0.004,
                     )
