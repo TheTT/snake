@@ -28,7 +28,7 @@ class FitConfig:
     integration_samples: int = 5
     lowpass_tau_sec: float = 0.05
     temporal_reg_weight: float = 1e-2
-    backend: Backend = Backend.ACF
+    backend: Backend = Backend.STEP
 
 
 @dataclass
