@@ -40,21 +40,43 @@ def load_config() -> Dict[str, Any]:
         raise ValueError("fps must be > 0")
 
     cfg.setdefault("view_fov_scale", 1.0)
-    cfg.setdefault("fsm_split_x_ratio", 0.5)
-    cfg.setdefault("fsm_split_y_ratio", 0.5)
-    cfg.setdefault("fsm_show_f_curve_overlay", False)
+
+    # Backwards-compatible support: allow either top-level fsm_* keys or
+    # a nested `fsm` dict. Normalize into cfg["fsm"].
+    fsm_block = cfg.get("fsm")
+    if fsm_block is None:
+        # Collect legacy top-level keys if present, else apply defaults.
+        fsm_block = {
+            "split_x_ratio": float(cfg.get("fsm_split_x_ratio", 0.5)),
+            "split_y_ratio": float(cfg.get("fsm_split_y_ratio", 0.5)),
+            "show_f_curve_overlay": bool(cfg.get("fsm_show_f_curve_overlay", False)),
+            "show_local_axes": bool(cfg.get("fsm_show_local_axes", False)),
+            "show_shell_overlay": bool(cfg.get("fsm_show_shell_overlay", False)),
+        }
+        cfg["fsm"] = fsm_block
+    else:
+        # Ensure keys exist with defaults when provided as block.
+        fsm_block.setdefault("split_x_ratio", 0.5)
+        fsm_block.setdefault("split_y_ratio", 0.5)
+        fsm_block.setdefault("show_f_curve_overlay", False)
+        fsm_block.setdefault("show_local_axes", False)
+        fsm_block.setdefault("show_shell_overlay", False)
 
     if float(cfg["view_fov_scale"]) <= 0.0:
         raise ValueError("view_fov_scale must be > 0")
 
-    split_x = float(cfg["fsm_split_x_ratio"])
-    split_y = float(cfg["fsm_split_y_ratio"])
+    split_x = float(cfg["fsm"]["split_x_ratio"])
+    split_y = float(cfg["fsm"]["split_y_ratio"])
     if not (0.0 < split_x < 1.0):
         raise ValueError("fsm_split_x_ratio must be in (0, 1)")
     if not (0.0 < split_y < 1.0):
         raise ValueError("fsm_split_y_ratio must be in (0, 1)")
 
-    if not isinstance(cfg["fsm_show_f_curve_overlay"], bool):
-        raise ValueError("fsm_show_f_curve_overlay must be a boolean")
+    if not isinstance(cfg["fsm"]["show_f_curve_overlay"], bool):
+        raise ValueError("fsm.show_f_curve_overlay must be a boolean")
+    if not isinstance(cfg["fsm"]["show_local_axes"], bool):
+        raise ValueError("fsm.show_local_axes must be a boolean")
+    if not isinstance(cfg["fsm"]["show_shell_overlay"], bool):
+        raise ValueError("fsm.show_shell_overlay must be a boolean")
 
     return cfg

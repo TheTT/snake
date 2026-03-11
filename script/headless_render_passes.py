@@ -74,6 +74,8 @@ def run_free_space_render_loop(
     dyn_top_cam: mujoco.MjvCamera,
     show_f_curve_overlay: bool,
     f_curve_fn: Callable[[float, float], tuple[float, float, float]] | None,
+    show_local_axes: bool,
+    show_shell_overlay: bool,
 ) -> None:
     prev_axis: np.ndarray | None = None
 
@@ -132,27 +134,30 @@ def run_free_space_render_loop(
                 set_model_fovy(model, fovy_persp)
                 renderer_persp.update_scene(data, camera=persp_cam)
                 dim_scene_model_geoms(renderer_persp.scene, 0.05)
+                if show_shell_overlay:
+                    dim_scene_model_geoms(renderer_persp.scene, 0.05)
                 append_joint_polyline(renderer_persp.scene, poly_points, segment_colors)
-                append_joint_axis_markers(
-                    renderer_persp.scene,
-                    model,
-                    data,
-                    fsm_joint_ids,
-                    allowed_axis_indices=(1, 2),  # y/z-axis joints
-                    length_m=0.16,
-                    radius=0.007,
-                    rgba=np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float64),
-                )
-                append_twist_axis_markers(
-                    renderer_persp.scene,
-                    model,
-                    data,
-                    fsm_joint_ids,
-                    twist_length_m=0.1,
-                    twist_radius=0.007,
-                    twist_base_angle_rad=np.pi / 2.0,
-                    twist_rgba=np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float64),
-                )
+                if show_local_axes:
+                    append_joint_axis_markers(
+                        renderer_persp.scene,
+                        model,
+                        data,
+                        fsm_joint_ids,
+                        allowed_axis_indices=(1, 2),  # y/z-axis joints
+                        length_m=0.16,
+                        radius=0.007,
+                        rgba=np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float64),
+                    )
+                    append_twist_axis_markers(
+                        renderer_persp.scene,
+                        model,
+                        data,
+                        fsm_joint_ids,
+                        twist_length_m=0.1,
+                        twist_radius=0.007,
+                        twist_base_angle_rad=np.pi / 2.0,
+                        twist_rgba=np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float64),
+                    )
                 if show_f_curve_overlay and f_curve_fn is not None:
                     s_samples = np.linspace(0.0, 1.0, 20, dtype=np.float64)
                     f_points = [
