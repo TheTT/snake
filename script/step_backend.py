@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Callable, Sequence
+from typing import Callable
 
 import numpy as np
 
-import linear_backend
 from shapefit_geometry import assemble_joint_angles
 from shapefit_types import FitConfig
 
@@ -49,13 +48,6 @@ def _dist_to_polyline(p, curve_pts, hint_i, radius):
             best_i = i
 
     return best, int(best_i)
-
-
-def _safe_normalize(v: np.ndarray) -> np.ndarray:
-    n = float(np.linalg.norm(v))
-    if n < 1e-12:
-        return np.array((1.0, 0.0, 0.0), dtype=np.float64)
-    return v / n
 
 
 def solve_with_step_placeholder(
@@ -138,18 +130,13 @@ def solve_with_step_placeholder(
     n_fk_segments = int(lengths.size)
     auto_radius = max(6, int(round(float(curve_pts.shape[0]) / max(1.0, float(n_fk_segments)))))
     poly_radius = int(precomp.get("step_polyline_radius", auto_radius))
-    dir_weight = float(precomp.get("step_direction_weight", 0.5 * float(np.mean(lengths) ** 2)))
-    downstream_span = int(precomp.get("step_downstream_span", max(6, n_fk_segments // 2)))
-    downstream_decay = float(precomp.get("step_downstream_decay", 0.92))
     anneal_iters = int(precomp.get("step_anneal_iters", 16))
-    anneal_t0 = float(precomp.get("step_anneal_t0", 1e-6))
-    anneal_tmin = float(precomp.get("step_anneal_tmin", 1e-9))
-    anneal_decay = float(precomp.get("step_anneal_decay", 0.666))
     anneal_step_scale = float(precomp.get("step_anneal_step_scale", 2.0))
-    debug_objective = bool(precomp.get("step_debug_objective", True))  # DEBUG
     random_seed = precomp.get("random_seed", None)
     if random_seed is not None:
         random.seed(int(random_seed))
+
+    yz_var_pos_by_joint = {int(j): idx for idx, j in enumerate(yz_joint_indices)}
 
     def _primary_segment_for_joint(jidx: int) -> int:
         # In this FK convention, joint j rotates the frame after segment j,
@@ -173,87 +160,24 @@ def solve_with_step_placeholder(
         dsq, _ = _dist_to_polyline(p, curve_pts, hint_i, poly_radius)
         return float(dsq)
 
-    def segment_cost(seg_i):
-        seg_i = max(0, min(int(seg_i), n_fk_segments - 1))
-        fk_ensure_upto(min(seg_i + 2, n_fk_segments))
-
-        p = np.asarray(fk_get_midpoint(seg_i), dtype=np.float64)
-        hint_i = _curve_hint_from_fk_segment(seg_i)
-        dsq, best_curve_seg = _dist_to_polyline(p, curve_pts, hint_i, poly_radius)
-
-        # Direction consistency term: discourage body tangent opposite to curve tangent.
-        if seg_i < n_fk_segments - 1:
-            p_next = np.asarray(fk_get_midpoint(seg_i + 1), dtype=np.float64)
-            body_tan = _safe_normalize(p_next - p)
-        elif seg_i > 0:
-            p_prev = np.asarray(fk_get_midpoint(seg_i - 1), dtype=np.float64)
-            body_tan = _safe_normalize(p - p_prev)
-        else:
-            body_tan = np.array((1.0, 0.0, 0.0), dtype=np.float64)
-
-        c0 = curve_pts[best_curve_seg]
-        c1 = curve_pts[min(best_curve_seg + 1, curve_pts.shape[0] - 1)]
-        curve_tan = _safe_normalize(np.asarray(c1 - c0, dtype=np.float64))
-        cosang = float(np.dot(body_tan, curve_tan))
-        orient_penalty = 0.5 * (1.0 - max(-1.0, min(1.0, cosang)))
-        return float(dsq + dir_weight * orient_penalty)
-
-    def _window_cost(window_joint_indices: Sequence[int]) -> float:
-        if len(window_joint_indices) == 0:
-            return 0.0
-        primary = [_primary_segment_for_joint(int(j)) for j in window_joint_indices]
-        seg_start = max(0, min(primary))
-        seg_end = min(n_fk_segments - 1, max(primary) + max(0, downstream_span))
-        csum = 0.0
-        for seg in range(seg_start, seg_end + 1):
-            w = float(downstream_decay ** max(0, seg - seg_start))
-            csum += w * segment_cost(seg)
-        return float(csum)
-
-    def _window_geom_cost(window_joint_indices: Sequence[int]) -> float:
-        if len(window_joint_indices) == 0:
-            return 0.0
-        primary = [_primary_segment_for_joint(int(j)) for j in window_joint_indices]
-        seg_start = max(0, min(primary))
-        seg_end = min(n_fk_segments - 1, max(primary) + max(0, downstream_span))
-        csum = 0.0
-        for seg in range(seg_start, seg_end + 1):
-            w = float(downstream_decay ** max(0, seg - seg_start))
-            csum += w * _segment_midpoint_distance_sq_to_curve(seg)
-        return float(csum)
-
-    def _global_objective_cost() -> tuple[float, float]:
-        """Return (objective_with_orientation, pure_geometry) on all FK segments."""
-        obj = 0.0
-        geom = 0.0
-        for seg in range(n_fk_segments):
-            obj += segment_cost(seg)
-            geom += _segment_midpoint_distance_sq_to_curve(seg)
-        return float(obj), float(geom)
-
     def _anneal_joint_delta(
         j: int,
         drive_sign: float,
-        window: Sequence[int],
+        primary_seg_i: int,
         applied_base: float,
-        curr_cost_base: float,
         curr_geom_base: float,
-    ) -> tuple[float, float, float]:
-        """Local annealing around current state for one joint.
+    ) -> tuple[float, float]:
+        """One-joint local search minimizing midpoint distance of its primary segment.
 
-        Returns (best_delta_from_base, best_cost, best_geom_cost).
+        Returns (best_delta_from_base, best_geom_cost).
         """
         geom_tol = 1e-12
         curr_delta = 0.0
-        curr_cost = float(curr_cost_base)
         curr_geom = float(curr_geom_base)
         best_delta = 0.0
-        best_cost = float(curr_cost_base)
         best_geom = float(curr_geom_base)
 
         n_iter = max(2, int(anneal_iters))
-        decay = min(0.999, max(0.5, float(anneal_decay)))
-        T = max(anneal_tmin, anneal_t0)
         for it in range(n_iter):
             frac = (it + 1) / float(n_iter)
 
@@ -271,110 +195,68 @@ def solve_with_step_placeholder(
 
             fk_apply_delta(j, delta_joint)
             fk_invalidate_from(int(j) + 1)
-            new_cost = _window_cost(window)
-            new_geom = _window_geom_cost(window)
+            new_geom = _segment_midpoint_distance_sq_to_curve(primary_seg_i)
 
-            # Only accept if geometry does not regress and objective strictly decreases.
-            accept = (new_geom <= curr_geom + geom_tol) and (new_cost < curr_cost)
+            # Only accept strictly better geometry for this one primary segment.
+            accept = new_geom < (curr_geom - geom_tol)
 
             if accept:
                 curr_delta += delta_joint
-                curr_cost = float(new_cost)
                 curr_geom = float(new_geom)
-                if (curr_cost < best_cost) and (curr_geom <= best_geom + geom_tol):
-                    best_cost = curr_cost
+                if curr_geom < (best_geom - geom_tol):
                     best_geom = curr_geom
                     best_delta = curr_delta
             else:
                 fk_apply_delta(j, -delta_joint)
                 fk_invalidate_from(int(j) + 1)
 
-            # Fast multiplicative cooling (recommended range 0.8~0.9).
-            T = max(anneal_tmin, T * decay)
-
         # Restore baseline state for caller; caller will apply best_delta once.
         if abs(curr_delta) > 1e-12:
             fk_apply_delta(j, -curr_delta)
             fk_invalidate_from(int(j) + 1)
 
-        return float(best_delta), float(best_cost), float(best_geom)
+        return float(best_delta), float(best_geom)
 
-    # Debug print requested by user: segment-4 midpoint distance before/after optimization.
-    seg4_i = max(0, min(3, n_fk_segments - 1))  # 1-based "第4节" -> 0-based index 3
-    seg4_d_before = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
-    obj_before, geom_before = _global_objective_cost()
-
-    if debug_objective:
-        print(
-            f"[STEP][OBJ] 全局目标(含方向项): 前={obj_before:.9e}; 纯几何项: 前={geom_before:.9e}"
-        )
+    # 第4节(索引3)前一关节是索引2，该日志只跟踪这个关节的退火前后变化。
+    seg4_i = max(0, min(3, n_fk_segments - 1))
+    seg4_prev_joint = max(0, seg4_i - 1)
 
     for pass_idx in range(passes):
+        for j in yz_joint_indices:
+            j_int = int(j)
+            sign = float(joint_signs[j_int])
+            drive_sign = sign
+            primary_seg_i = _primary_segment_for_joint(j_int)
+            curr_geom = _segment_midpoint_distance_sq_to_curve(primary_seg_i)
 
-        pass_obj_before = 0.0
-        pass_geom_before = 0.0
-        if debug_objective:
-            pass_obj_before, pass_geom_before = _global_objective_cost()
+            seg4_before = None
+            if j_int == seg4_prev_joint:
+                seg4_before = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
 
-        for start in range(max(1, n_yz - 2)):
-
-            window = yz_joint_indices[start : start + 3]
-
-            curr_cost = _window_cost(window)
-            curr_geom_cost = _window_geom_cost(window)
-
-            for local_k, j in enumerate(window):
-
-                sign = joint_signs[j]
-                # DEBUG
-                # axis_name = str(joint_axes[int(j)]).lower() if 0 <= int(j) < len(joint_axes) else ""
-                # # Experimental switch requested by user: reverse angle increment on y-axis joints.
-                # drive_sign = -sign if axis_name == "y" else sign
-                drive_sign = sign
-
-                best_delta, best_cost, best_geom_cost = _anneal_joint_delta(
-                    int(j),
-                    float(drive_sign),
-                    window,
-                    float(applied[j]),
-                    float(curr_cost),
-                    float(curr_geom_cost),
-                )
-
-                if best_delta != 0.0:
-
-                    fk_apply_delta(j, best_delta)
-
-                    fk_invalidate_from(int(j) + 1)
-
-                    applied[j] += best_delta
-                    curr_cost = best_cost
-                    curr_geom_cost = best_geom_cost
-
-                    if abs(sign) > 1e-12:
-                        yz_vars[start + local_k] += best_delta / sign
-
-        if debug_objective:
-            pass_obj_after, pass_geom_after = _global_objective_cost()
-            print(
-                "[STEP][OBJ] "
-                f"pass={pass_idx + 1}/{passes} "
-                f"目标: {pass_obj_before:.9e} -> {pass_obj_after:.9e} "
-                f"(delta={pass_obj_after - pass_obj_before:+.3e}); "
-                f"几何: {pass_geom_before:.9e} -> {pass_geom_after:.9e} "
-                f"(delta={pass_geom_after - pass_geom_before:+.3e})"
+            best_delta, _best_geom = _anneal_joint_delta(
+                j_int,
+                float(drive_sign),
+                int(primary_seg_i),
+                float(applied[j_int]),
+                float(curr_geom),
             )
 
-    seg4_d_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
-    obj_after, geom_after = _global_objective_cost()
-    print(
-        f"[STEP] 第4节中点到曲线距离: 调整前={seg4_d_before:.6f} m, 调整后={seg4_d_after:.6f} m"
-    )
-    if debug_objective:
-        print(
-            f"[STEP][OBJ] 全局目标(含方向项): 后={obj_after:.9e} (delta={obj_after - obj_before:+.3e}); "
-            f"纯几何项: 后={geom_after:.9e} (delta={geom_after - geom_before:+.3e})"
-        )
+            if best_delta != 0.0:
+                fk_apply_delta(j_int, best_delta)
+                fk_invalidate_from(j_int + 1)
+                applied[j_int] += best_delta
+
+                if abs(sign) > 1e-12:
+                    yz_pos = yz_var_pos_by_joint.get(j_int, None)
+                    if yz_pos is not None:
+                        yz_vars[yz_pos] += best_delta / sign
+
+            if seg4_before is not None:
+                seg4_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
+                print(
+                    f"[STEP] 第4节前一关节退火(pass={pass_idx + 1}/{passes})后: "
+                    f"中点到曲线距离 调整前={seg4_before:.6f} m, 调整后={seg4_after:.6f} m"
+                )
 
     v[:n_yz] = yz_vars
 
