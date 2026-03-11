@@ -92,7 +92,8 @@ def assemble_joint_angles(
     for j in range(n_joints):
         sign = float(joint_signs[j])
         if j in x_map:
-            out[j] = float(twist_angles[x_map[j]])
+            # Twist joints must also respect per-joint sign convention.
+            out[j] = sign * float(twist_angles[x_map[j]])
         elif j in yz_map:
             out[j] = sign * float(yz_vars[yz_map[j]])
         else:
