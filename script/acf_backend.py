@@ -98,7 +98,7 @@ def solve_with_acf_placeholder(
     """
     acfed chain fitting backend using sliding 3-joint windows and local acfing.
     Does NOT use `tgt` as point-samples; instead requires either:
-      - precomp['curve_samples_arc'] = ndarray (M,4) columns [s, x, y, z], where s is arc-length (meters)
+      - precomp['curve_samples'] = ndarray (M,4) columns [s, x, y, z], where s is arc-length (meters)
       OR
       - precomp['curve_fn'] = callable(s) -> (3,) point, with s in [s_min, s_max].
         When using curve_fn, precomp may provide 'curve_param_range' = (s_min, s_max).
@@ -132,7 +132,7 @@ def solve_with_acf_placeholder(
     x_twist = np.asarray(precomp.get("twist_filtered", []), dtype=np.float64)
 
     # curve sources (do NOT use precomp['tgt'])
-    curve_samples_arc = precomp.get("curve_samples_arc", None)  # expected shape (M,4): s,x,y,z
+    curve_samples = precomp.get("curve_samples", None)  # expected shape (M,4): s,x,y,z
     curve_fn = precomp.get("curve_fn", None)  # callable(s) -> (3,)
     curve_param_range = precomp.get("curve_param_range", None)  # optional (s_min, s_max)
 
@@ -143,7 +143,7 @@ def solve_with_acf_placeholder(
         return v
     if len(yz_joint_indices_0b) == 0:
         return v
-    if curve_samples_arc is None and not callable(curve_fn):
+    if curve_samples is None and not callable(curve_fn):
         # no valid curve representation provided (we intentionally do not use 'tgt')
         return v
 
@@ -160,8 +160,8 @@ def solve_with_acf_placeholder(
     # prepare curve samples if provided
     samples_s = None
     samples_xyz = None
-    if curve_samples_arc is not None:
-        arr = np.asarray(curve_samples_arc, dtype=np.float64)
+    if curve_samples is not None:
+        arr = np.asarray(curve_samples, dtype=np.float64)
         if arr.ndim == 2 and arr.shape[1] == 4:
             samples_s = arr[:, 0].copy()
             samples_xyz = arr[:, 1:4].copy()

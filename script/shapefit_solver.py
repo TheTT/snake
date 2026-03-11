@@ -9,6 +9,7 @@ import jacob_backend
 import linear_backend
 import anneal_backend
 import acf_backend
+import step_backend
 from shapefit_geometry import (
     _rot_axis,
     _rpy_to_mat3,
@@ -216,7 +217,7 @@ def solve_shape_for_time(
         "seg_mid_s": np.asarray(seg_mid_s, dtype=np.float64),
         "tgt": np.asarray(tgt, dtype=np.float64),
         # Provide curve samples in arc-length meters for ACF backend
-        "curve_samples_arc": np.column_stack((np.asarray(seg_mid_s, dtype=np.float64) * float(np.sum(lengths_m)), np.asarray(tgt, dtype=np.float64))),
+        "curve_samples": np.column_stack((np.asarray(seg_mid_s, dtype=np.float64) * float(np.sum(lengths_m)), np.asarray(tgt, dtype=np.float64))),
         "twist_filtered": np.asarray(state.twist_filtered, dtype=np.float64).copy(),
         "joint_axes": tuple(joint_axes),
         "joint_signs": np.asarray(joint_signs, dtype=np.float64),
@@ -230,6 +231,7 @@ def solve_shape_for_time(
         Backend.LINEAR: linear_backend.solve_with_linear_placeholder,
         Backend.ANNEAL: anneal_backend.solve_with_anneal_placeholder,
         Backend.ACF: acf_backend.solve_with_acf_placeholder,
+        Backend.STEP: step_backend.solve_with_step_placeholder,
     }
 
     backend_fn = backend_map.get(cfg.backend, jacob_backend.solve_with_jacob_least_squares)

@@ -16,6 +16,7 @@ class Backend(Enum):
     LINEAR = "linear"
     ANNEAL = "anneal"
     ACF = "acf"
+    STEP = "step"
 
 
 @dataclass
