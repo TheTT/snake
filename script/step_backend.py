@@ -154,6 +154,15 @@ def solve_with_step_placeholder(
         ratio = float(max(0, min(int(seg_i), n_fk_segments - 1))) / float(n_fk_segments - 1)
         return int(round(ratio * float(n_curve - 1)))
 
+    def _segment_midpoint_distance_sq_to_curve(seg_i: int) -> float:
+        # Pure geometric distance from midpoint to curve (without orientation penalty).
+        seg_i = max(0, min(int(seg_i), n_fk_segments - 1))
+        fk_ensure_upto(min(seg_i + 1, n_fk_segments))
+        p = np.asarray(fk_get_midpoint(seg_i), dtype=np.float64)
+        hint_i = _curve_hint_from_fk_segment(seg_i)
+        dsq, _ = _dist_to_polyline(p, curve_pts, hint_i, poly_radius)
+        return float(dsq)
+
     def segment_cost(seg_i):
         seg_i = max(0, min(int(seg_i), n_fk_segments - 1))
         fk_ensure_upto(min(seg_i + 2, n_fk_segments))
@@ -191,6 +200,10 @@ def solve_with_step_placeholder(
             csum += w * segment_cost(seg)
         return float(csum)
 
+    # Debug print requested by user: segment-4 midpoint distance before/after optimization.
+    seg4_i = max(0, min(3, n_fk_segments - 1))  # 1-based "第4节" -> 0-based index 3
+    seg4_d_before = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
+
     for _ in range(passes):
 
         for start in range(max(1, n_yz - 2)):
@@ -203,9 +216,10 @@ def solve_with_step_placeholder(
 
                 sign = joint_signs[j]
                 # DEBUG
-                axis_name = str(joint_axes[int(j)]).lower() if 0 <= int(j) < len(joint_axes) else ""
-                # Experimental switch requested by user: reverse angle increment on y-axis joints.
-                drive_sign = -sign if axis_name == "y" else sign
+                # axis_name = str(joint_axes[int(j)]).lower() if 0 <= int(j) < len(joint_axes) else ""
+                # # Experimental switch requested by user: reverse angle increment on y-axis joints.
+                # drive_sign = -sign if axis_name == "y" else sign
+                drive_sign = sign
 
                 best_delta = 0.0
                 best_cost = base_cost
@@ -245,6 +259,11 @@ def solve_with_step_placeholder(
 
                     if abs(sign) > 1e-12:
                         yz_vars[start + local_k] += best_delta / sign
+
+    seg4_d_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
+    print(
+        f"[STEP] 第4节中点到曲线距离: 调整前={seg4_d_before:.6f} m, 调整后={seg4_d_after:.6f} m"
+    )
 
     v[:n_yz] = yz_vars
 
