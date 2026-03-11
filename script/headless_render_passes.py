@@ -72,10 +72,10 @@ def run_free_space_render_loop(
     dyn_main_cam: mujoco.MjvCamera,
     dyn_left_cam: mujoco.MjvCamera,
     dyn_top_cam: mujoco.MjvCamera,
-    show_f_curve_overlay: bool,
-    f_curve_fn: Callable[[float, float], tuple[float, float, float]] | None,
-    show_local_axes: bool,
-    show_shell_overlay: bool,
+    show_f_curve_overlay: bool = False,
+    f_curve_fn: Callable[[float, float], tuple[float, float, float]] | None = None,
+    show_local_axes: bool = False,
+    show_shell_overlay: bool = False,
 ) -> None:
     prev_axis: np.ndarray | None = None
 
@@ -133,7 +133,6 @@ def run_free_space_render_loop(
 
                 set_model_fovy(model, fovy_persp)
                 renderer_persp.update_scene(data, camera=persp_cam)
-                dim_scene_model_geoms(renderer_persp.scene, 0.05)
                 if show_shell_overlay:
                     dim_scene_model_geoms(renderer_persp.scene, 0.05)
                 append_joint_polyline(renderer_persp.scene, poly_points, segment_colors)

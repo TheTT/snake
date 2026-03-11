@@ -107,14 +107,13 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     total_steps = settle_steps + motion_steps
     base_fps = int(cfg["fps"])
     speed = float(cfg["video_speed"])
-    fsm_split_x_ratio = float(cfg["fsm_split_x_ratio"])
-    fsm_split_y_ratio = float(cfg["fsm_split_y_ratio"])
-    fsm_show_f_curve_overlay = bool(cfg["fsm_show_f_curve_overlay"])
-        fsm_split_x_ratio = float(cfg["fsm"]["split_x_ratio"])
-        fsm_split_y_ratio = float(cfg["fsm"]["split_y_ratio"])
-        fsm_show_f_curve_overlay = bool(cfg["fsm"]["show_f_curve_overlay"])
-        fsm_show_local_axes = bool(cfg["fsm"]["show_local_axes"])
-        fsm_show_shell_overlay = bool(cfg["fsm"]["show_shell_overlay"])
+    fsm_split_x_ratio = float(cfg["fsm"]["split_x_ratio"])
+    fsm_split_y_ratio = float(cfg["fsm"]["split_y_ratio"])
+    fsm_show_f_curve_overlay = bool(cfg["fsm"]["show_f_curve_overlay"])
+    fsm_show_local_axes = bool(cfg["fsm"]["show_local_axes"])
+    fsm_show_shell_overlay = bool(cfg["fsm"]["show_shell_overlay"])
+    # Keep output fps fixed; increase simulation interval per frame to speed up video.
+    render_every = max(1, int(round(speed / (base_fps * model.opt.timestep))))
     total_frames = 0 if motion_steps <= 0 else ((motion_steps - 1) // render_every) + 1
     output_fps = base_fps
 
@@ -129,16 +128,14 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     print(f"free_space_mode={free_space_mode}")
     print(f"view_fov_scale={view_fov_scale}, fovy={base_fovy:.2f}->{scaled_fovy:.2f}")
     if free_space_mode:
-        print(f"fsm_split_x_ratio={fsm_split_x_ratio}, fsm_split_y_ratio={fsm_split_y_ratio}")
-        print(f"fsm_show_f_curve_overlay={fsm_show_f_curve_overlay}")
-            print(
-                f"fsm_split_x_ratio={fsm_split_x_ratio}, fsm_split_y_ratio={fsm_split_y_ratio}"
-            )
-            print(
-                f"fsm_show_f_curve_overlay={fsm_show_f_curve_overlay}, "
-                f"fsm_show_local_axes={fsm_show_local_axes}, "
-                f"fsm_show_shell_overlay={fsm_show_shell_overlay}"
-            )
+        print(
+            f"fsm_split_x_ratio={fsm_split_x_ratio}, fsm_split_y_ratio={fsm_split_y_ratio}"
+        )
+        print(
+            f"fsm_show_f_curve_overlay={fsm_show_f_curve_overlay}, "
+            f"fsm_show_local_axes={fsm_show_local_axes}, "
+            f"fsm_show_shell_overlay={fsm_show_shell_overlay}"
+        )
     if unmapped:
         print(f"Unmapped actuators will be zeroed ({len(unmapped)}): {unmapped}")
 
