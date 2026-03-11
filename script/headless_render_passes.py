@@ -135,6 +135,9 @@ def run_free_space_render_loop(
                 renderer_persp.update_scene(data, camera=persp_cam)
                 if show_shell_overlay:
                     dim_scene_model_geoms(renderer_persp.scene, 0.05)
+                else:
+                    # Hide model shell in FSM BR panel when overlay is disabled.
+                    dim_scene_model_geoms(renderer_persp.scene, 0.0)
                 append_joint_polyline(renderer_persp.scene, poly_points, segment_colors)
                 if show_local_axes:
                     append_joint_axis_markers(
