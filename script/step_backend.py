@@ -26,6 +26,9 @@ def _dist_to_polyline(p, curve_pts, hint_i):
     hint_i: approximate index (uses locality)
     """
     n = len(curve_pts)
+    if n < 2:
+        d = p - curve_pts[0] if n == 1 else p
+        return float(np.dot(d, d))
 
     start = max(0, hint_i - 3)
     end = min(n - 2, hint_i + 3)
@@ -112,15 +115,28 @@ def solve_with_step_placeholder(
 
     applied = np.zeros(len(joint_axes))
 
-    seg_hint = 0
+    n_fk_segments = int(lengths.size)
+
+    def _primary_segment_for_joint(jidx: int) -> int:
+        # In this FK convention, joint j rotates the frame after segment j,
+        # so the first directly affected segment is j+1.
+        return max(0, min(int(jidx) + 1, n_fk_segments - 1))
+
+    def _curve_hint_from_fk_segment(seg_i: int) -> int:
+        # Map FK segment index [0, n_fk_segments-1] into curve sample index [0, n_curve-1].
+        n_curve = int(curve_pts.shape[0])
+        if n_curve <= 1 or n_fk_segments <= 1:
+            return 0
+        ratio = float(max(0, min(int(seg_i), n_fk_segments - 1))) / float(n_fk_segments - 1)
+        return int(round(ratio * float(n_curve - 1)))
 
     def segment_cost(seg_i):
 
         fk_ensure_upto(seg_i + 1)
 
         p = np.asarray(fk_get_midpoint(seg_i))
-
-        return _dist_to_polyline(p, curve_pts, seg_hint)
+        hint_i = _curve_hint_from_fk_segment(seg_i)
+        return _dist_to_polyline(p, curve_pts, hint_i)
 
     for _ in range(passes):
 
@@ -131,8 +147,7 @@ def solve_with_step_placeholder(
             base_cost = 0.0
 
             for j in window:
-
-                seg_i = int(j)
+                seg_i = _primary_segment_for_joint(int(j))
 
                 base_cost += segment_cost(seg_i)
 
@@ -161,8 +176,7 @@ def solve_with_step_placeholder(
                     c = 0.0
 
                     for jj in window:
-
-                        c += segment_cost(int(jj))
+                        c += segment_cost(_primary_segment_for_joint(int(jj)))
 
                     fk_apply_delta(j, -delta_joint)
 
