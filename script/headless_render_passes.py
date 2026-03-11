@@ -166,14 +166,15 @@ def run_free_space_render_loop(
                         np.asarray(f_curve_fn(float(t), float(sv)), dtype=np.float64)
                         for sv in s_samples
                     ]
-                    # 把紫色折线平移+旋转到与中轴线视觉上贴近：
-                    # 1) 以折线起点为旋转中心，将起始切向量对齐到第一段关节轴方向
-                    # 2) 将旋转后的起点平移到 head 节心
+                    # Transform the purple curve to visually align with the midline:
+                    # 1) Rotate around the curve start to align the initial tangent with the
+                    #    first segment joint direction
+                    # 2) Translate the rotated start point to the head anchor
                     f0 = f_points[0].copy()
-                    # head anchor 使用第一个关节的 xanchor
+                    # head anchor use the first joint's xanchor
                     head_anchor = np.asarray(joint_axis_points[0], dtype=np.float64)
 
-                    # 目标方向：第一个关节到第二个关节的向量（若存在）
+                    # Target direction: vector from the first joint to the second joint (if available)
                     if len(joint_axis_points) > 1:
                         tgt_dir = np.asarray(joint_axis_points[1], dtype=np.float64) - np.asarray(joint_axis_points[0], dtype=np.float64)
                     else:
@@ -184,7 +185,7 @@ def run_free_space_render_loop(
                     else:
                         tgt_dir = tgt_dir / tgt_norm
 
-                    # 源方向：f 的第一个切向量
+                    # Source direction: the first tangent of f
                     if len(f_points) > 1:
                         src_dir = f_points[1] - f_points[0]
                     else:
@@ -215,11 +216,11 @@ def run_free_space_render_loop(
                         v_rot = _rodrigues_rotate(v, axis, angle)
                         rotated.append(v_rot + f0)
 
-                    # 平移到 head_anchor
+                    # Translate to head_anchor
                     delta = head_anchor - rotated[0]
                     f_points_trans = [p + delta for p in rotated]
 
-                    # 输出：紫色折线起点、head 节中心、两者间距离（每帧一行）
+                    # Output: purple curve start point, head center, and their distance (one line per frame)
                     start_pt = f_points_trans[0]
                     dist = float(np.linalg.norm(start_pt - head_anchor))
                     print(
