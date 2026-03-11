@@ -198,9 +198,12 @@ def render_headless(cfg: Dict[str, Any]) -> None:
         c.distance = float(cfg["camera_distance"])
 
     segment_colors = [
-        np.array([0.1, 0.3, 1.0, 1.0], dtype=np.float32),  # blue
-        np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32),  # white
-        np.array([1.0, 0.9, 0.1, 1.0], dtype=np.float32),  # yellow
+    ]
+    base_alpha = 0.5 if fsm_show_f_curve_overlay else 1.0
+    segment_colors = [
+        np.array([0.1, 0.3, 1.0, base_alpha], dtype=np.float32),  # blue
+        np.array([1.0, 1.0, 1.0, base_alpha], dtype=np.float32),  # white
+        np.array([1.0, 0.9, 0.1, base_alpha], dtype=np.float32),  # yellow
     ]
 
     # Record actual post-step joint qpos values in joint_1..joint_N order.
