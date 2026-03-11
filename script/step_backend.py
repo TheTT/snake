@@ -138,6 +138,8 @@ def solve_with_step_placeholder(
     auto_radius = max(6, int(round(float(curve_pts.shape[0]) / max(1.0, float(n_fk_segments)))))
     poly_radius = int(precomp.get("step_polyline_radius", auto_radius))
     dir_weight = float(precomp.get("step_direction_weight", 0.5 * float(np.mean(lengths) ** 2)))
+    downstream_span = int(precomp.get("step_downstream_span", max(6, n_fk_segments // 2)))
+    downstream_decay = float(precomp.get("step_downstream_decay", 0.92))
 
     def _primary_segment_for_joint(jidx: int) -> int:
         # In this FK convention, joint j rotates the frame after segment j,
@@ -177,18 +179,25 @@ def solve_with_step_placeholder(
         orient_penalty = 0.5 * (1.0 - max(-1.0, min(1.0, cosang)))
         return float(dsq + dir_weight * orient_penalty)
 
+    def _window_cost(window_joint_indices: Sequence[int]) -> float:
+        if len(window_joint_indices) == 0:
+            return 0.0
+        primary = [_primary_segment_for_joint(int(j)) for j in window_joint_indices]
+        seg_start = max(0, min(primary))
+        seg_end = min(n_fk_segments - 1, max(primary) + max(0, downstream_span))
+        csum = 0.0
+        for seg in range(seg_start, seg_end + 1):
+            w = float(downstream_decay ** max(0, seg - seg_start))
+            csum += w * segment_cost(seg)
+        return float(csum)
+
     for _ in range(passes):
 
         for start in range(max(1, n_yz - 2)):
 
             window = yz_joint_indices[start : start + 3]
 
-            base_cost = 0.0
-
-            for j in window:
-                seg_i = _primary_segment_for_joint(int(j))
-
-                base_cost += segment_cost(seg_i)
+            base_cost = _window_cost(window)
 
             for local_k, j in enumerate(window):
 
@@ -210,16 +219,13 @@ def solve_with_step_placeholder(
 
                     fk_apply_delta(j, delta_joint)
 
-                    fk_invalidate_from(j)
+                    fk_invalidate_from(int(j) + 1)
 
-                    c = 0.0
-
-                    for jj in window:
-                        c += segment_cost(_primary_segment_for_joint(int(jj)))
+                    c = _window_cost(window)
 
                     fk_apply_delta(j, -delta_joint)
 
-                    fk_invalidate_from(j)
+                    fk_invalidate_from(int(j) + 1)
 
                     if c < best_cost:
                         best_cost = c
@@ -229,7 +235,7 @@ def solve_with_step_placeholder(
 
                     fk_apply_delta(j, best_delta)
 
-                    fk_invalidate_from(j)
+                    fk_invalidate_from(int(j) + 1)
 
                     applied[j] += best_delta
 
