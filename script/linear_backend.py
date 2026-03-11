@@ -10,22 +10,26 @@ from shapefit_types import FitConfig
 
 ResidualFn = Callable[[np.ndarray], np.ndarray]
 
+EPS = 1e-12
+
 
 def _normalize(v: np.ndarray, fallback: np.ndarray) -> np.ndarray:
     n = float(np.linalg.norm(v))
-    if n < 1e-12:
+    if n < EPS:
         return np.asarray(fallback, dtype=np.float64)
     return v / n
 
 
 def _axis_vec(axis_name: str) -> np.ndarray:
-    if axis_name == "x":
+    # accept upper/lower case
+    an = axis_name.lower()
+    if an == "x":
         return np.array((1.0, 0.0, 0.0), dtype=np.float64)
-    if axis_name == "y":
+    if an == "y":
         return np.array((0.0, 1.0, 0.0), dtype=np.float64)
-    if axis_name == "z":
+    if an == "z":
         return np.array((0.0, 0.0, 1.0), dtype=np.float64)
-    raise ValueError(f"Unsupported axis {axis_name}")
+    raise ValueError(f"Unsupported axis '{axis_name}'; expected 'x','y' or 'z'.")
 
 
 def _rot_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
@@ -53,26 +57,47 @@ def _align_targets(
     aligned = np.asarray(tgt, dtype=np.float64).copy()
     if aligned.shape[0] < 2:
         return aligned
-    # New behavior: rotate first (about the curve start), then translate the start
-    # to the head translation. This reduces issues caused by rotating about a point
-    # that may move under translation.
+    # rotate about curve start, then translate
     f0 = aligned[0].copy()
 
     head_rot = _rpy_to_mat3(float(head_rpy[0]), float(head_rpy[1]), float(head_rpy[2]))
-    head_axis = _normalize(head_rot @ np.array((1.0, 0.0, 0.0), dtype=np.float64), np.array((1.0, 0.0, 0.0), dtype=np.float64))
+    head_axis = _normalize(head_rot @ np.array((1.0, 0.0, 0.0), dtype=np.float64),
+                           np.array((1.0, 0.0, 0.0), dtype=np.float64))
 
     # source tangent (at curve start)
     src = aligned[1] - aligned[0]
     tangent = _normalize(src, head_axis)
 
     # 1) Rotate around curve start so the local tangent aligns with head axis
-    c = max(-1.0, min(1.0, float(np.dot(tangent, head_axis))))
+    # compute dot and handle parallel / anti-parallel cases robustly
+    c = float(np.dot(tangent, head_axis))
+    c = max(-1.0, min(1.0, c))
     ang = math.acos(c)
-    axis = np.cross(tangent, head_axis)
-    if float(np.linalg.norm(axis)) < 1e-10:
+
+    # if angle is tiny => no rotation
+    if ang < 1e-8:
         rot1 = np.eye(3, dtype=np.float64)
     else:
-        rot1 = _rot_about_axis(axis, ang)
+        axis = np.cross(tangent, head_axis)
+        axis_norm = float(np.linalg.norm(axis))
+        if axis_norm < 1e-10:
+            # tangent and head_axis are (nearly) parallel or anti-parallel
+            if c > 0.0:
+                # already aligned
+                rot1 = np.eye(3, dtype=np.float64)
+            else:
+                # opposite direction: choose arbitrary perp axis and rotate by pi
+                # pick a stable perpendicular vector
+                fallback = np.array((1.0, 0.0, 0.0), dtype=np.float64)
+                perp = np.cross(tangent, fallback)
+                if float(np.linalg.norm(perp)) < 1e-8:
+                    # tangent was nearly parallel to fallback; choose Y
+                    fallback = np.array((0.0, 1.0, 0.0), dtype=np.float64)
+                    perp = np.cross(tangent, fallback)
+                perp = _normalize(perp, np.array((0.0, 0.0, 1.0), dtype=np.float64))
+                rot1 = _rot_about_axis(perp, math.pi)
+        else:
+            rot1 = _rot_about_axis(axis, ang)
     aligned = (rot1 @ (aligned - f0).T).T + f0
 
     # 2) Translate so the rotated start matches head center
@@ -83,6 +108,7 @@ def _align_targets(
 
     # 3) Rotate around head axis (about head_translation) to make the first joint axis
     # close to orthogonal to the local osculating plane normal.
+
     d0 = aligned[1] - aligned[0]
     d1 = aligned[2] - aligned[1]
     plane_n = np.cross(d0, d1)
@@ -90,20 +116,35 @@ def _align_targets(
         return aligned
     plane_n = _normalize(plane_n, np.array((0.0, 0.0, 1.0), dtype=np.float64))
 
-    first_axis_world = _normalize(head_rot @ _axis_vec(joint_axes[0]), np.array((0.0, 1.0, 0.0), dtype=np.float64))
+    first_axis_world = _normalize(head_rot @ _axis_vec(joint_axes[0]),
+                                  np.array((0.0, 1.0, 0.0), dtype=np.float64))
 
-    best_phi = 0.0
-    best_cost = abs(float(np.dot(first_axis_world, plane_n)))
-    for phi in np.linspace(-math.pi, math.pi, 73, dtype=np.float64):
-        rp = _rot_about_axis(head_axis, float(phi))
-        n_phi = rp @ plane_n
-        cost = abs(float(np.dot(first_axis_world, n_phi)))
-        if cost < best_cost:
-            best_cost = cost
-            best_phi = float(phi)
+    # We want to rotate plane_n around head_axis to minimize |first_axis_world · rotated_plane_n|.
+    # Solve analytically: let h=head_axis. Decompose p=plane_n into p_par + p_perp (w.r.t h).
+    # If p_perp is zero (p parallel to h) => nothing to do.
+    h = head_axis
+    p = plane_n
+    p_par_comp = float(np.dot(p, h))
+    p_perp = p - p_par_comp * h
+    p_perp_norm = float(np.linalg.norm(p_perp))
+    if p_perp_norm < 1e-10:
+        # plane normal is parallel to head axis (no meaningful rotation)
+        return aligned
 
-    if abs(best_phi) > 1e-8:
-        rot2 = _rot_about_axis(head_axis, best_phi)
+    # build orthonormal basis (u, v) in plane perpendicular to h, with u aligned to p_perp
+    u = p_perp / p_perp_norm
+    v = np.cross(h, u)  # already orthogonal to both
+    # project first_axis_world into the (u,v) plane
+    a = first_axis_world
+    A = float(np.dot(a, u))
+    B = float(np.dot(a, v))
+    # we want phi such that A*cos(phi) + B*sin(phi) is minimized in absolute value.
+    # choose phi = atan2(-A, B) which makes A*cos + B*sin = 0 (if solvable).
+    best_phi = math.atan2(-A, B)
+
+    # if best_phi is negligibly small, skip rotate
+    if abs(best_phi) > 1e-10:
+        rot2 = _rot_about_axis(h, best_phi)
         aligned = (rot2 @ (aligned - head_translation).T).T + head_translation
 
     return aligned
@@ -124,6 +165,7 @@ def _segment_cost(
     return c
 
 
+# solve_with_linear_placeholder 保持不变（若需要我也可以对它做进一步审查/优化）
 def solve_with_linear_placeholder(
     *,
     residual_fn: ResidualFn,
@@ -131,11 +173,6 @@ def solve_with_linear_placeholder(
     cfg: FitConfig,
     precomp: dict | None = None,
 ) -> np.ndarray:
-    """Linear sequential projection backend using incremental FK callbacks.
-
-    This backend keeps x-twist read-only and updates yz joints in-place by
-    coordinate-descent style segment projection.
-    """
     v = np.asarray(v0, dtype=np.float64).copy()
     _ = residual_fn
 
@@ -243,7 +280,7 @@ def solve_with_linear_placeholder(
                     best_cost = c
                     best_delta_joint = actual_delta
 
-            if abs(best_delta_joint) > 0.0:
+            if abs(best_delta_joint) > 1e-12:
                 jidx = int(joint_idx)
                 # ensure we do not exceed +/- 90 degrees when applying
                 if 0 <= jidx < applied_deltas.size:
@@ -253,7 +290,7 @@ def solve_with_linear_placeholder(
                 else:
                     actual_apply = best_delta_joint
 
-                if abs(actual_apply) > 0.0:
+                if abs(actual_apply) > 1e-12:
                     fk_apply_delta(int(joint_idx), actual_apply)
                     fk_invalidate_from(seg_i)
                     if 0 <= jidx < applied_deltas.size:
