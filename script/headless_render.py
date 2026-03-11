@@ -257,6 +257,8 @@ def render_headless(cfg: Dict[str, Any]) -> None:
             dyn_top_cam=dyn_top_cam,
             show_f_curve_overlay=fsm_show_f_curve_overlay,
             f_curve_fn=midline_f,
+            show_local_axes=fsm_show_local_axes,
+            show_shell_overlay=fsm_show_shell_overlay,
         )
     else:
         run_standard_render_loop(
