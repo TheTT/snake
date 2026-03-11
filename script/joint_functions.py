@@ -35,7 +35,7 @@ JOINT_AXES = [
     "z", "x", "y",
     "z", "x", "y",
     "z", "x", "y",
-    "z", "x", "y",
+    "z", "x", "z",
 ]
 
 JOINT_SIGNS = [
