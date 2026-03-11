@@ -78,9 +78,8 @@ def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
 
         n_joints = int(cache["n_joints"])
         seg_idx = max(0, min(int(i), n_joints))
-        valid_upto = int(cache["valid_upto_segment"])
-        if seg_idx <= valid_upto:
-            return
+        # DEBUG
+        valid_upto = int(cache.get("valid_upto_segment", -1))
 
         points = cache["points"]
         frames = cache["frames"]
@@ -89,7 +88,8 @@ def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
         joint_axes = cache["joint_axes"]
         head_rot = cache["head_rot"]
 
-        start_seg = valid_upto + 1
+        # DEBUG
+        start_seg = 0
         for seg in range(start_seg, min(seg_idx, n_joints - 1) + 1):
             rot_before = head_rot if seg == 0 else frames[seg - 1]
             points[seg + 1] = points[seg] + rot_before @ np.array((float(lengths[seg]), 0.0, 0.0), dtype=np.float64)
