@@ -8,6 +8,7 @@ import numpy as np
 import jacob_backend
 import linear_backend
 import anneal_backend
+import acf_backend
 from shapefit_geometry import (
     _rot_axis,
     _rpy_to_mat3,
@@ -226,6 +227,7 @@ def solve_shape_for_time(
         Backend.JACOB: jacob_backend.solve_with_jacob_least_squares,
         Backend.LINEAR: linear_backend.solve_with_linear_placeholder,
         Backend.ANNEAL: anneal_backend.solve_with_anneal_placeholder,
+        Backend.ACF: acf_backend.solve_with_acf_placeholder,
     }
 
     backend_fn = backend_map.get(cfg.backend, jacob_backend.solve_with_jacob_least_squares)
