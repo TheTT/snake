@@ -72,6 +72,8 @@ def run_free_space_render_loop(
     dyn_main_cam: mujoco.MjvCamera,
     dyn_left_cam: mujoco.MjvCamera,
     dyn_top_cam: mujoco.MjvCamera,
+    show_f_curve_overlay: bool,
+    f_curve_fn: Callable[[float, float], tuple[float, float, float]] | None,
 ) -> None:
     prev_axis: np.ndarray | None = None
 
@@ -151,6 +153,18 @@ def run_free_space_render_loop(
                     twist_base_angle_rad=np.pi / 2.0,
                     twist_rgba=np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float64),
                 )
+                if show_f_curve_overlay and f_curve_fn is not None:
+                    s_samples = np.linspace(0.0, 1.0, 20, dtype=np.float64)
+                    f_points = [
+                        np.asarray(f_curve_fn(float(t), float(sv)), dtype=np.float64)
+                        for sv in s_samples
+                    ]
+                    append_joint_polyline(
+                        renderer_persp.scene,
+                        f_points,
+                        [np.array([0.75, 0.2, 0.95, 1.0], dtype=np.float32)],
+                        radius=0.004,
+                    )
                 frame_persp = renderer_persp.render()
 
                 frame = compose_fsm_quad(

@@ -42,6 +42,7 @@ def load_config() -> Dict[str, Any]:
     cfg.setdefault("view_fov_scale", 1.0)
     cfg.setdefault("fsm_split_x_ratio", 0.5)
     cfg.setdefault("fsm_split_y_ratio", 0.5)
+    cfg.setdefault("fsm_show_f_curve_overlay", False)
 
     if float(cfg["view_fov_scale"]) <= 0.0:
         raise ValueError("view_fov_scale must be > 0")
@@ -52,5 +53,8 @@ def load_config() -> Dict[str, Any]:
         raise ValueError("fsm_split_x_ratio must be in (0, 1)")
     if not (0.0 < split_y < 1.0):
         raise ValueError("fsm_split_y_ratio must be in (0, 1)")
+
+    if not isinstance(cfg["fsm_show_f_curve_overlay"], bool):
+        raise ValueError("fsm_show_f_curve_overlay must be a boolean")
 
     return cfg

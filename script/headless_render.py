@@ -36,6 +36,7 @@ from headless_joint_utils import (
 )
 from headless_plot import plot_joint_angles_mod3
 from headless_render_passes import run_free_space_render_loop, run_standard_render_loop
+from gait_function import f as midline_f
 from joint_functions import JOINT_FUNCTIONS, POLYLINE_SEGMENT_LENGTHS_M
 
 
@@ -108,6 +109,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     speed = float(cfg["video_speed"])
     fsm_split_x_ratio = float(cfg["fsm_split_x_ratio"])
     fsm_split_y_ratio = float(cfg["fsm_split_y_ratio"])
+    fsm_show_f_curve_overlay = bool(cfg["fsm_show_f_curve_overlay"])
     # Keep output fps fixed; increase simulation interval per frame to speed up video.
     render_every = max(1, int(round(speed / (base_fps * model.opt.timestep))))
     total_frames = 0 if motion_steps <= 0 else ((motion_steps - 1) // render_every) + 1
@@ -125,6 +127,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     print(f"view_fov_scale={view_fov_scale}, fovy={base_fovy:.2f}->{scaled_fovy:.2f}")
     if free_space_mode:
         print(f"fsm_split_x_ratio={fsm_split_x_ratio}, fsm_split_y_ratio={fsm_split_y_ratio}")
+        print(f"fsm_show_f_curve_overlay={fsm_show_f_curve_overlay}")
     print(f"video_fps={output_fps} (fixed), speed={speed}, render_every={render_every}")
     print(f"Mapped actuators ({len(mapped)}): {mapped}")
     if unmapped:
@@ -246,6 +249,8 @@ def render_headless(cfg: Dict[str, Any]) -> None:
             dyn_main_cam=dyn_main_cam,
             dyn_left_cam=dyn_left_cam,
             dyn_top_cam=dyn_top_cam,
+            show_f_curve_overlay=fsm_show_f_curve_overlay,
+            f_curve_fn=midline_f,
         )
     else:
         run_standard_render_loop(
