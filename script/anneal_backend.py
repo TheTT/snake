@@ -66,6 +66,10 @@ def _point_polyline_distance_sq_local(
     return best, int(best_i)
 
 
+def _is_finite_scalar(x: float) -> bool:
+    return bool(np.isfinite(x))
+
+
 def solve_with_anneal_placeholder(
     *,
     residual_fn: ResidualFn,
@@ -135,6 +139,17 @@ def solve_with_anneal_placeholder(
         len(joint_axes),
     )
 
+    # Hard clamp yz joints to physical range before entering annealing.
+    for yz_k, jidx in enumerate(yz_joint_indices_0b):
+        jj = int(jidx)
+        if jj < 0 or jj >= len(joint_angles):
+            continue
+        clamped_joint = _clamp(float(joint_angles[jj]), -math.pi / 2.0, math.pi / 2.0)
+        joint_angles[jj] = clamped_joint
+        sign = float(joint_signs[jj]) if 0 <= jj < joint_signs.size else 1.0
+        if abs(sign) > EPS:
+            yz_vars[yz_k] = clamped_joint / sign
+
     fk_init = fk_callbacks["fk_init"]
     fk_apply_delta = fk_callbacks["fk_apply_delta"]
     fk_get_midpoint = fk_callbacks["fk_get_midpoint"]
@@ -150,8 +165,8 @@ def solve_with_anneal_placeholder(
         joint_axes=joint_axes,
     )
 
-    # track applied deltas for clamping [-pi/2, pi/2]
-    applied_deltas = np.zeros((len(joint_axes),), dtype=np.float64)
+    # Track current absolute joint angles; all proposals are clamped to +/-90 deg.
+    current_joint_angles = np.asarray(joint_angles, dtype=np.float64).copy()
 
     # Annealing parameters.
     step_deg = float(precomp.get("anneal_step_deg", 0.6))
@@ -178,6 +193,8 @@ def solve_with_anneal_placeholder(
             seg_i = max(0, min(int(jj), aligned_tgt.shape[0] - 1))
             center = max(min_seg_i, int(hint_map.get(int(jj), seg_i)))
             mid = np.asarray(fk_get_midpoint(seg_i), dtype=np.float64)
+            if not np.all(np.isfinite(mid)):
+                return 1e300, out_hints
             dsq, best_seg_i = _point_polyline_distance_sq_local(
                 mid,
                 aligned_tgt,
@@ -185,10 +202,15 @@ def solve_with_anneal_placeholder(
                 radius=local_radius,
                 min_seg_i=min_seg_i,
             )
+            if not _is_finite_scalar(dsq):
+                return 1e300, out_hints
             s += dsq
             min_seg_i = best_seg_i
             out_hints[int(jj)] = best_seg_i
-        return float(s), out_hints
+        s = float(s)
+        if not _is_finite_scalar(s):
+            return 1e300, out_hints
+        return s, out_hints
 
     for _ in range(n_pass):
         max_start = max(0, n_yz - 1)
@@ -216,10 +238,10 @@ def solve_with_anneal_placeholder(
                 sign = float(joint_signs[gidx]) if (0 <= gidx < joint_signs.size) else 1.0
                 dyz = float(random.choice((-1, 1))) * step
                 delta_joint = sign * dyz
-                if 0 <= gidx < applied_deltas.size:
-                    proposed = applied_deltas[gidx] + delta_joint
-                    clamped = _clamp(proposed, -math.pi / 2.0, math.pi / 2.0)
-                    actual_delta_joint = clamped - applied_deltas[gidx]
+                if 0 <= gidx < current_joint_angles.size:
+                    proposed_angle = float(current_joint_angles[gidx] + delta_joint)
+                    clamped_angle = _clamp(proposed_angle, -math.pi / 2.0, math.pi / 2.0)
+                    actual_delta_joint = clamped_angle - float(current_joint_angles[gidx])
                 else:
                     actual_delta_joint = delta_joint
 
@@ -234,6 +256,8 @@ def solve_with_anneal_placeholder(
                 fk_ensure_upto(max_seg + 1)
                 new_cost, new_hints = _window_cost(window_joint_indices, curr_hints)
                 delta_cost = new_cost - curr_cost
+                if not _is_finite_scalar(delta_cost):
+                    delta_cost = 1e300
 
                 if delta_cost <= 0.0:
                     accept = True
@@ -247,10 +271,14 @@ def solve_with_anneal_placeholder(
                 if accept:
                     curr_cost = new_cost
                     curr_hints = new_hints
-                    if 0 <= gidx < applied_deltas.size:
-                        applied_deltas[gidx] += actual_delta_joint
+                    if 0 <= gidx < current_joint_angles.size:
+                        current_joint_angles[gidx] = _clamp(
+                            float(current_joint_angles[gidx] + actual_delta_joint),
+                            -math.pi / 2.0,
+                            math.pi / 2.0,
+                        )
                     if abs(sign) > EPS:
-                        yz_vars[yz_idx] += actual_delta_joint / sign
+                        yz_vars[yz_idx] = current_joint_angles[gidx] / sign
                     stagnation = 0
                 else:
                     fk_apply_delta(gidx, -actual_delta_joint)
