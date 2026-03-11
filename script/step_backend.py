@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import random
 from typing import Callable
 
 import numpy as np
@@ -133,9 +132,6 @@ def solve_with_step_placeholder(
     anneal_iters = int(precomp.get("step_anneal_iters", 16))
     anneal_step_scale = float(precomp.get("step_anneal_step_scale", 2.0))
     geom_tol = float(precomp.get("step_geom_tol", 1e-12))
-    random_seed = precomp.get("random_seed", None)
-    if random_seed is not None:
-        random.seed(int(random_seed))
 
     yz_var_pos_by_joint = {int(j): idx for idx, j in enumerate(yz_joint_indices)}
 
@@ -182,34 +178,41 @@ def solve_with_step_placeholder(
             # Start with larger local proposals, then shrink toward the end.
             scale = 1.0 + anneal_step_scale * (1.0 - frac)
             trial_step = step * scale
-            if random.random() < 0.35:
-                trial_step = step
-            dsign = -1.0 if random.random() < 0.5 else 1.0
-            delta_joint = float(drive_sign * dsign * trial_step)
 
-            proposed = float(applied_base + curr_delta + delta_joint)
-            if proposed > math.pi / 2 or proposed < -math.pi / 2:
-                n_clipped += 1
+            # Deterministic 1D search: evaluate both signs and take the better downhill move.
+            best_trial_delta = 0.0
+            best_trial_geom = float("inf")
+            for dsign in (-1.0, 1.0):
+                delta_joint = float(drive_sign * dsign * trial_step)
+                proposed = float(applied_base + curr_delta + delta_joint)
+                if proposed > math.pi / 2 or proposed < -math.pi / 2:
+                    n_clipped += 1
+                    continue
+
+                n_tried += 1
+                fk_apply_delta(j, delta_joint)
+                fk_invalidate_from(int(j) + 1)
+                new_geom = _segment_midpoint_distance_sq_to_curve(primary_seg_i)
+                fk_apply_delta(j, -delta_joint)
+                fk_invalidate_from(int(j) + 1)
+
+                if new_geom < best_trial_geom:
+                    best_trial_geom = float(new_geom)
+                    best_trial_delta = float(delta_joint)
+
+            if best_trial_delta == 0.0:
                 continue
 
-            n_tried += 1
-            fk_apply_delta(j, delta_joint)
-            fk_invalidate_from(int(j) + 1)
-            new_geom = _segment_midpoint_distance_sq_to_curve(primary_seg_i)
-
             # Only accept strictly better geometry for this one primary segment.
-            accept = new_geom < (curr_geom - geom_tol)
-
-            if accept:
+            if best_trial_geom < (curr_geom - geom_tol):
+                fk_apply_delta(j, best_trial_delta)
+                fk_invalidate_from(int(j) + 1)
                 n_accepted += 1
-                curr_delta += delta_joint
-                curr_geom = float(new_geom)
+                curr_delta += best_trial_delta
+                curr_geom = float(best_trial_geom)
                 if curr_geom < (best_geom - geom_tol):
                     best_geom = curr_geom
                     best_delta = curr_delta
-            else:
-                fk_apply_delta(j, -delta_joint)
-                fk_invalidate_from(int(j) + 1)
 
         # Restore baseline state for caller; caller will apply best_delta once.
         if abs(curr_delta) > 1e-12:
