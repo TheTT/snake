@@ -166,6 +166,12 @@ def run_free_space_render_loop(
                         np.asarray(f_curve_fn(float(t), float(sv)), dtype=np.float64)
                         for sv in s_samples
                     ]
+                    # 输出紫色折线的总长度（不跟换行符）
+                    total_len = 0.0
+                    for i in range(len(f_points) - 1):
+                        total_len += float(np.linalg.norm(f_points[i + 1] - f_points[i]))
+                    # 按需格式化为小数并不换行输出
+                    print(f"{total_len:.6f}", end="", flush=True)
                     append_joint_polyline(
                         renderer_persp.scene,
                         f_points,
