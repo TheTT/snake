@@ -5,7 +5,7 @@ from typing import Sequence
 
 import numpy as np
 
-from jacob_fd import forward_difference_jacobian
+from jacob_backend import solve_with_jacob_least_squares
 from shapefit_geometry import (
     assemble_joint_angles,
     forward_points_and_frames,
@@ -82,24 +82,13 @@ def solve_shape_for_time(
         mids = 0.5 * (points[:-1] + points[1:])
         return (mids - tgt).reshape(-1)
 
-    v = state.yz_and_head.copy()
-    for _ in range(cfg.max_iter):
-        r0 = residual(v)
-        eps = max(cfg.finite_diff_eps, 1e-8)
-        jac = forward_difference_jacobian(residual, v, r0, eps)
-        jac = np.asarray(jac, dtype=np.float64)
-        r0 = np.asarray(r0, dtype=np.float64)
-
-        lhs = jac.T @ jac + cfg.damping * np.eye(v.size, dtype=np.float64)
-        rhs = -1.0 * (jac.T @ r0)
-        try:
-            dv = np.linalg.solve(lhs, rhs)
-        except np.linalg.LinAlgError:
-            break
-
-        v = v + dv
-        if float(np.linalg.norm(dv)) < 1e-5:
-            break
+    # Swap this backend import to anneal_backend.solve_with_anneal_placeholder
+    # without touching residual construction logic.
+    v = solve_with_jacob_least_squares(
+        residual_fn=residual,
+        v0=state.yz_and_head,
+        cfg=cfg,
+    )
 
     state.yz_and_head = v
 

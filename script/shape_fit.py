@@ -5,7 +5,8 @@ The implementation is split into:
 - shapefit_geometry.py: FK and geometric helpers
 - shapefit_target.py: target-curve and twist integration helpers
 - shapefit_solver.py: shape solver entrypoint
-- jacob_fd.py: Jacobian implementations (finite differences)
+- jacob_backend.py: least-squares backend and Jacobian implementations (finite differences)
+- anneal_backend.py: annealing backend placeholder with same interface
 """
 
 from __future__ import annotations
