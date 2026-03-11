@@ -12,7 +12,6 @@ from shapefit_types import FitConfig
 
 ResidualFn = Callable[[np.ndarray], np.ndarray]
 
-# Numerical eps
 EPS = 1e-12
 
 
@@ -25,7 +24,6 @@ def _point_segment_distance_sq(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> f
     v = b - a
     vv = float(np.dot(v, v))
     if vv < EPS:
-        # degenerate segment
         d = p - a
         return float(np.dot(d, d))
     t = float(np.dot(p - a, v) / vv)
@@ -35,31 +33,37 @@ def _point_segment_distance_sq(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> f
     return float(np.dot(d, d))
 
 
-def _point_polyline_distance_sq_local(p: np.ndarray, curve: np.ndarray, seg_i: int, radius: int = 2) -> float:
-    """
-    Compute squared distance from p to polyline `curve` but only checking segments
-    in index range [seg_i - radius, seg_i + radius + 1] (clipped).
-    curve shape: (N,3)
-    seg_i refers to segment index roughly corresponding to p; we clip indices to valid range.
-    """
+def _point_polyline_distance_sq_local(
+    p: np.ndarray,
+    curve: np.ndarray,
+    seg_i: int,
+    radius: int = 2,
+    min_seg_i: int = 0,
+) -> tuple[float, int]:
+    """Nearest squared distance from p to local polyline neighborhood, plus best segment index."""
     if curve is None or curve.ndim != 2 or curve.shape[0] < 1:
-        return float(np.dot(p, p))
-    n = curve.shape[0]
-    best = float("inf")
-    # segments are [i, i+1]
-    start = max(0, seg_i - radius)
-    end = min(n - 2, seg_i + radius)  # last segment index is n-2
-    # if there are no segments (n < 2), fallback to nearest sample point
+        return float(np.dot(p, p)), 0
+
+    n = int(curve.shape[0])
     if n == 1:
         d = p - curve[0]
-        return float(np.dot(d, d))
-    for i in range(start, end + 1):
-        a = curve[i]
-        b = curve[i + 1]
-        dsq = _point_segment_distance_sq(p, a, b)
+        return float(np.dot(d, d)), 0
+
+    center = max(0, min(int(seg_i), n - 2))
+    lo = max(int(min_seg_i), center - int(radius), 0)
+    hi = min(n - 2, center + int(radius))
+    if lo > hi:
+        lo = max(0, min(int(min_seg_i), n - 2))
+        hi = lo
+
+    best = float("inf")
+    best_i = lo
+    for i in range(lo, hi + 1):
+        dsq = _point_segment_distance_sq(p, curve[i], curve[i + 1])
         if dsq < best:
             best = dsq
-    return best
+            best_i = i
+    return best, int(best_i)
 
 
 def solve_with_anneal_placeholder(
@@ -69,22 +73,7 @@ def solve_with_anneal_placeholder(
     cfg: FitConfig,
     precomp: dict | None = None,
 ) -> np.ndarray:
-    """
-    Simulated-annealing local-window backend.
-
-    Strategy:
-      - Sweep windows of 3 consecutive yz joints (stride 1) from front to back.
-      - For each window, run a small simulated-annealing loop to minimize the sum of squared
-        distances between the corresponding segment midpoints and the target curve (local polyline).
-      - Step size default = 1 degree (in radians). Angles clamped to [-pi/2, pi/2] cumulative per joint.
-      - Uses precomp['fk_callbacks'] same contract as other backends.
-
-    Assumptions / notes:
-      - If precomp contains 'aligned_tgt' (an Nx3 array), it will be used directly.
-        Otherwise, if precomp contains 'align_func', call align_func(tgt, head_translation, head_rpy, joint_axes).
-        Otherwise fallback to 'tgt' unchanged.
-      - Joint-index ↔ segment-index mapping: uses int(joint_idx) as the primary segment index for evaluating proximity.
-    """
+    """Simulated-annealing backend using nearest distance to piecewise-linear target."""
     v = np.asarray(v0, dtype=np.float64).copy()
     _ = residual_fn
 
@@ -128,15 +117,13 @@ def solve_with_anneal_placeholder(
     head_translation = np.asarray(head[:3], dtype=np.float64)
     head_rpy = np.asarray(head[3:], dtype=np.float64)
 
-    # aligned targets: prefer precomputed or provided align_func
+    # aligned targets: only use curve f-derived target (or user-provided aligned variant)
     if "aligned_tgt" in precomp and isinstance(precomp["aligned_tgt"], np.ndarray):
-        aligned_tgt = precomp["aligned_tgt"]
+        aligned_tgt = np.asarray(precomp["aligned_tgt"], dtype=np.float64)
     elif "align_func" in precomp and callable(precomp["align_func"]):
-        # align_func(tgt, head_translation, head_rpy, joint_axes) -> aligned array
         aligned_tgt = np.asarray(precomp["align_func"](tgt, head_translation, head_rpy, joint_axes), dtype=np.float64)
     else:
-        # fallback: assume tgt is already in the right frame
-        aligned_tgt = tgt
+        aligned_tgt = np.asarray(tgt, dtype=np.float64)
 
     # assemble initial joint angles and init FK
     joint_angles = assemble_joint_angles(
@@ -166,142 +153,116 @@ def solve_with_anneal_placeholder(
     # track applied deltas for clamping [-pi/2, pi/2]
     applied_deltas = np.zeros((len(joint_axes),), dtype=np.float64)
 
-    # annealing parameters (tunable)
-    step_deg = float(precomp.get("anneal_step_deg", 1.0))  # degrees
-    step = math.radians(step_deg)  # radians step
-    # iterations_per_window: base on cfg.max_iter but ensure reasonable minimum
-    iterations_per_window = max(20, int(max(1, getattr(cfg, "max_iter", 20))))
-    # temperature schedule
+    # Annealing parameters.
+    step_deg = float(precomp.get("anneal_step_deg", 0.6))
+    step = max(1e-4, math.radians(step_deg))
+    iterations_per_window = int(precomp.get("anneal_iterations_per_window", max(6, 2 * int(cfg.max_iter))))
+    iterations_per_window = max(4, iterations_per_window)
     T0 = float(precomp.get("anneal_T0", 1.0))
     Tmin = float(precomp.get("anneal_Tmin", 1e-3))
+    stagnation_limit = int(precomp.get("anneal_stagnation_limit", 6))
+    local_radius = int(precomp.get("anneal_polyline_radius", 2))
 
-    n_pass = max(1, int(getattr(cfg, "max_iter", 1)))
+    n_pass = max(1, min(3, int(getattr(cfg, "max_iter", 1))))
 
-    # helper: cost for a set of joint indices (window)
-    def _window_cost_for_joint_indices(joint_indices_window: Sequence[int]) -> float:
-        # For each joint in window, map to a primary segment index and sum squared distances
+    # Sequential hint: nearest target segment index should vary smoothly along body.
+    seg_hint_by_joint: dict[int, int] = {
+        int(j): max(0, min(int(j), aligned_tgt.shape[0] - 2)) for j in yz_joint_indices_0b
+    }
+
+    def _window_cost(window_joint_indices: Sequence[int], hint_map: dict[int, int]) -> tuple[float, dict[int, int]]:
         s = 0.0
-        for jj in joint_indices_window:
+        min_seg_i = 0
+        out_hints: dict[int, int] = {}
+        for jj in window_joint_indices:
             seg_i = max(0, min(int(jj), aligned_tgt.shape[0] - 1))
-            # evaluate midpoint at seg_i
-            try:
-                mid = np.asarray(fk_get_midpoint(seg_i), dtype=np.float64)
-            except Exception:
-                # if fk fails, return large cost
-                return 1e300
-            s += _point_polyline_distance_sq_local(mid, aligned_tgt, seg_i, radius=2)
-        return float(s)
+            center = max(min_seg_i, int(hint_map.get(int(jj), seg_i)))
+            mid = np.asarray(fk_get_midpoint(seg_i), dtype=np.float64)
+            dsq, best_seg_i = _point_polyline_distance_sq_local(
+                mid,
+                aligned_tgt,
+                seg_i=center,
+                radius=local_radius,
+                min_seg_i=min_seg_i,
+            )
+            s += dsq
+            min_seg_i = best_seg_i
+            out_hints[int(jj)] = best_seg_i
+        return float(s), out_hints
 
-    # Sweep passes
-    for pass_i in range(n_pass):
-        # front-to-back windows over yz_joint_indices_0b with stride 1
-        max_start = max(0, n_yz - 3)
+    for _ in range(n_pass):
+        max_start = max(0, n_yz - 1)
         for start_idx in range(0, max_start + 1):
-            # window joint indices (these are indices into yz_vars array)
-            window_yz_indices = [start_idx, start_idx + 1, start_idx + 2]
-            # convert to actual joint indices (0-based in whole joint list)
+            end_idx = min(n_yz, start_idx + 3)
+            window_yz_indices = list(range(start_idx, end_idx))
+            if not window_yz_indices:
+                continue
             window_joint_indices = [yz_joint_indices_0b[i] for i in window_yz_indices]
 
-            # determine minimal segment index touched for fk_invalidate_from
             segs = [max(0, min(int(j), aligned_tgt.shape[0] - 1)) for j in window_joint_indices]
             min_seg = max(0, min(segs) - 2)
             max_seg = min(aligned_tgt.shape[0] - 1, max(segs) + 2)
-
-            # ensure FK up to needed
             fk_ensure_upto(max_seg + 1)
+            curr_cost, curr_hints = _window_cost(window_joint_indices, seg_hint_by_joint)
+            stagnation = 0
 
-            # current window cost
-            curr_cost = _window_cost_for_joint_indices(window_joint_indices)
-
-            # annealing loop
             for it in range(iterations_per_window):
-                # temperature schedule: linear decay
                 t_fraction = (it + 1) / float(iterations_per_window)
                 T = max(Tmin, T0 * (1.0 - t_fraction))
 
-                # propose random discrete perturbations for the 3 yz joints: each ∈ {-1,0,1} * step
-                # map to global joint indices
-                proposals = []
-                for k_local, yz_idx in enumerate(window_yz_indices):
-                    sign_choice = random.choice((-1, 0, 1))
-                    delta = float(sign_choice) * step
-                    # convert sign by joint_signs mapping so delta applies in FK coordinate if needed
-                    global_jidx = int(window_joint_indices[k_local])
-                    sign = float(joint_signs[global_jidx]) if (0 <= global_jidx < joint_signs.size) else 1.0
-                    # delta in FK joint units
-                    delta_joint = sign * delta
-                    # clamp w.r.t applied_deltas so cumulative stays in [-pi/2, pi/2]
-                    if 0 <= global_jidx < applied_deltas.size:
-                        proposed = applied_deltas[global_jidx] + delta_joint
-                        clamped = _clamp(proposed, -math.pi / 2.0, math.pi / 2.0)
-                        actual_delta_joint = clamped - applied_deltas[global_jidx]
-                    else:
-                        actual_delta_joint = delta_joint
-                    proposals.append((global_jidx, actual_delta_joint, delta))  # keep delta (signed by sign) for yz_vars update later
+                # Lighter proposal: perturb one joint per step.
+                yz_idx = random.choice(window_yz_indices)
+                gidx = int(yz_joint_indices_0b[yz_idx])
+                sign = float(joint_signs[gidx]) if (0 <= gidx < joint_signs.size) else 1.0
+                dyz = float(random.choice((-1, 1))) * step
+                delta_joint = sign * dyz
+                if 0 <= gidx < applied_deltas.size:
+                    proposed = applied_deltas[gidx] + delta_joint
+                    clamped = _clamp(proposed, -math.pi / 2.0, math.pi / 2.0)
+                    actual_delta_joint = clamped - applied_deltas[gidx]
+                else:
+                    actual_delta_joint = delta_joint
 
-                # if all proposals are near zero skip
-                if all(abs(p[1]) < 1e-12 for p in proposals):
+                if abs(actual_delta_joint) < EPS:
+                    stagnation += 1
+                    if stagnation >= stagnation_limit:
+                        break
                     continue
 
-                # apply proposals sequentially (record applied order)
-                applied_seq = []
-                for (gidx, actual_delta_joint, unused_delta_for_yz) in proposals:
-                    if abs(actual_delta_joint) < 1e-12:
-                        applied_seq.append((gidx, 0.0))
-                        continue
-                    fk_apply_delta(int(gidx), actual_delta_joint)
-                    applied_seq.append((gidx, actual_delta_joint))
-
-                # invalidate FK from min_seg and ensure upto
-                fk_invalidate_from(min_seg)
+                fk_apply_delta(gidx, actual_delta_joint)
+                fk_invalidate_from(max(0, min_seg))
                 fk_ensure_upto(max_seg + 1)
-
-                # compute new cost
-                new_cost = _window_cost_for_joint_indices(window_joint_indices)
-
+                new_cost, new_hints = _window_cost(window_joint_indices, curr_hints)
                 delta_cost = new_cost - curr_cost
 
-                accept = False
                 if delta_cost <= 0.0:
                     accept = True
                 else:
-                    # probabilistic acceptance
                     try:
-                        prob = math.exp(-delta_cost / max(T, 1e-300))
+                        prob = math.exp(-delta_cost / max(T, 1e-12))
                     except OverflowError:
                         prob = 0.0
-                    if random.random() < prob:
-                        accept = True
+                    accept = random.random() < prob
 
                 if accept:
-                    # commit: update applied_deltas and yz_vars for each applied change
                     curr_cost = new_cost
-                    for (gidx, actual_delta_joint) in applied_seq:
-                        if abs(actual_delta_joint) < 1e-12:
-                            continue
-                        if 0 <= gidx < applied_deltas.size:
-                            applied_deltas[gidx] += actual_delta_joint
-                        # find corresponding yz_vars index if this gidx is one of yz_joint_indices_0b
-                        # note: window_joint_indices[k_local] corresponds to yz index at window_yz_indices[k_local]
-                        for k_local, yz_idx in enumerate(window_yz_indices):
-                            if window_joint_indices[k_local] == gidx:
-                                # the delta in yz_vars should be actual_delta_joint / sign (reverse convert)
-                                sign = float(joint_signs[gidx]) if (0 <= gidx < joint_signs.size) else 1.0
-                                if abs(sign) > 1e-12:
-                                    yz_vars[yz_idx] += actual_delta_joint / sign
+                    curr_hints = new_hints
+                    if 0 <= gidx < applied_deltas.size:
+                        applied_deltas[gidx] += actual_delta_joint
+                    if abs(sign) > EPS:
+                        yz_vars[yz_idx] += actual_delta_joint / sign
+                    stagnation = 0
                 else:
-                    # rollback: apply negative of applied_seq in reverse order
-                    for (gidx, actual_delta_joint) in reversed(applied_seq):
-                        if abs(actual_delta_joint) < 1e-12:
-                            continue
-                        fk_apply_delta(int(gidx), -actual_delta_joint)
-                    fk_invalidate_from(min_seg)
+                    fk_apply_delta(gidx, -actual_delta_joint)
+                    fk_invalidate_from(max(0, min_seg))
                     fk_ensure_upto(max_seg + 1)
-                    # nothing else to do
+                    stagnation += 1
+                    if stagnation >= stagnation_limit:
+                        break
 
-            # end annealing loop for this window
-
-    # end passes sweep
+            seg_hint_by_joint.update(curr_hints)
 
     v[:n_yz] = yz_vars
+    # Head translation and rotation are not optimized in this backend.
+    v[n_yz: n_yz + 6] = v0[n_yz: n_yz + 6]
     return v
