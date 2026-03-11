@@ -19,7 +19,7 @@ from shapefit_geometry import (
     smoothstep01,
     x_joint_s_intervals,
 )
-from shapefit_target import build_target_points, integrate_avg_g
+from shapefit_target import build_target_points, integrate_avg_g, target_point
 from shapefit_types import CurveFn, FitConfig, FitState, TwistFn, Backend
 
 
@@ -216,8 +216,13 @@ def solve_shape_for_time(
         "lengths_m": np.asarray(lengths_m, dtype=np.float64),
         "seg_mid_s": np.asarray(seg_mid_s, dtype=np.float64),
         "tgt": np.asarray(tgt, dtype=np.float64),
-        # Provide curve samples in arc-length meters for ACF backend
-        "curve_samples": np.column_stack((np.asarray(seg_mid_s, dtype=np.float64) * float(np.sum(lengths_m)), np.asarray(tgt, dtype=np.float64))),
+        # curve_samples: Nx3 points sampled uniformly by arc-length (meters)
+        # Prefer uniform arc-length sampling for downstream backends.
+        # Default to 200 samples; can be adjusted later if needed.
+        # s_m: absolute arc-length positions in meters
+        "curve_samples_n": 200,
+        "curve_samples": None,
+        "curve_samples_arc": None,
         "twist_filtered": np.asarray(state.twist_filtered, dtype=np.float64).copy(),
         "joint_axes": tuple(joint_axes),
         "joint_signs": np.asarray(joint_signs, dtype=np.float64),
@@ -235,6 +240,21 @@ def solve_shape_for_time(
     }
 
     backend_fn = backend_map.get(cfg.backend, jacob_backend.solve_with_jacob_least_squares)
+    # Build uniform arc-length curve samples (in meters) for precomp if possible
+    try:
+        total_length = float(np.sum(lengths_m))
+        n_samples = int(precomp.get("curve_samples_n", 200)) if isinstance(precomp := locals().get('precomp', None), dict) else 200
+    except Exception:
+        total_length = float(np.sum(lengths_m))
+        n_samples = 200
+
+    s_m = np.linspace(0.0, total_length, max(2, int(n_samples)), dtype=np.float64)
+    s_norm = s_m / max(total_length, 1e-12)
+    curve_pts = np.array([target_point(f_fn, lengths_m, t, float(s), cfg.startup_ramp_sec) for s in s_norm], dtype=np.float64)
+    # update precomp with concrete samples
+    precomp["curve_samples"] = curve_pts
+    precomp["curve_samples_arc"] = np.column_stack((s_m, curve_pts))
+
     v = backend_fn(
         residual_fn=residual,
         v0=state.yz_and_head,
