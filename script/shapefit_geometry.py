@@ -72,7 +72,6 @@ def x_joint_s_intervals(x_joint_indices_0b: Sequence[int], lengths_m: Sequence[f
     return np.asarray(intervals, dtype=np.float64)
 
 
-
 def assemble_joint_angles(
     x_joint_indices_0b: Sequence[int],
     yz_joint_indices_0b: Sequence[int],
