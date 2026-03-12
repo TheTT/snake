@@ -69,6 +69,22 @@ def f(t: float, s: float) -> Vec3:
     z = ah * math.sin(phase)
     return x, y, z
 
+# def f(t: float, s: float) -> Vec3:
+#     ss = max(0.0, min(1.0, float(s)))
+#     _ensure_body_length()
+#     body_len = _BODY_LENGTH_M if _BODY_LENGTH_M is not None else _DEFAULT_BODY_LENGTH_M
+
+#     ah = float(_F_PARAMS["ah"])  # z amplitude
+#     av = float(_F_PARAMS["av"])  # y amplitude
+#     freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
+
+#     phase = 2.0 * math.pi * freq * float(t)
+
+#     x = body_len * ss
+#     y = av * s * s * math.cos(phase)
+#     z = 0
+#     return x, y, z
+
 
 def g(t: float, s: float) -> float:
     """Sample twist field: always zero."""
