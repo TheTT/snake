@@ -5,10 +5,6 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 
-import jacob_backend
-import linear_backend
-import anneal_backend
-import acf_backend
 import step_backend
 from shapefit_geometry import (
     _rot_axis,
@@ -21,6 +17,121 @@ from shapefit_geometry import (
 )
 from shapefit_target import build_target_points, integrate_avg_g, target_point
 from shapefit_types import CurveFn, FitConfig, FitState, TwistFn, Backend
+
+
+def _align_targets(
+    tgt: np.ndarray,
+    head_translation: np.ndarray,
+    head_rpy: np.ndarray,
+    joint_axes: Sequence[str],
+) -> np.ndarray:
+    # Inline copy of previous linear_backend._align_targets so step backend
+    # can use alignment without depending on linear_backend.
+    aligned = np.asarray(tgt, dtype=np.float64).copy()
+    if aligned.shape[0] < 2:
+        return aligned
+    f0 = aligned[0].copy()
+
+    head_rot = _rpy_to_mat3(float(head_rpy[0]), float(head_rpy[1]), float(head_rpy[2]))
+    head_axis = np.asarray(head_rot @ np.array((1.0, 0.0, 0.0), dtype=np.float64), dtype=np.float64)
+    hnorm = float(np.linalg.norm(head_axis))
+    if hnorm < 1e-12:
+        head_axis = np.array((1.0, 0.0, 0.0), dtype=np.float64)
+    else:
+        head_axis = head_axis / hnorm
+
+    src = aligned[1] - aligned[0]
+    tangent_norm = float(np.linalg.norm(src))
+    if tangent_norm < 1e-12:
+        tangent = head_axis
+    else:
+        tangent = src / tangent_norm
+
+    c = float(np.dot(tangent, head_axis))
+    c = max(-1.0, min(1.0, c))
+    ang = math.acos(c)
+
+    def _rot_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
+        ax = axis.copy()
+        an = float(np.linalg.norm(ax))
+        if an < 1e-12:
+            ax = np.array((1.0, 0.0, 0.0), dtype=np.float64)
+        else:
+            ax = ax / an
+        x, y, z = float(ax[0]), float(ax[1]), float(ax[2])
+        co = math.cos(angle)
+        s = math.sin(angle)
+        t = 1.0 - co
+        return np.array(
+            (
+                (t * x * x + co, t * x * y - s * z, t * x * z + s * y),
+                (t * x * y + s * z, t * y * y + co, t * y * z - s * x),
+                (t * x * z - s * y, t * y * z + s * x, t * z * z + co),
+            ),
+            dtype=np.float64,
+        )
+
+    if ang < 1e-8:
+        rot1 = np.eye(3, dtype=np.float64)
+    else:
+        axis = np.cross(tangent, head_axis)
+        axis_norm = float(np.linalg.norm(axis))
+        if axis_norm < 1e-10:
+            if c > 0.0:
+                rot1 = np.eye(3, dtype=np.float64)
+            else:
+                fallback = np.array((1.0, 0.0, 0.0), dtype=np.float64)
+                perp = np.cross(tangent, fallback)
+                if float(np.linalg.norm(perp)) < 1e-8:
+                    fallback = np.array((0.0, 1.0, 0.0), dtype=np.float64)
+                    perp = np.cross(tangent, fallback)
+                perp_norm = float(np.linalg.norm(perp))
+                if perp_norm < 1e-12:
+                    perp = np.array((0.0, 0.0, 1.0), dtype=np.float64)
+                else:
+                    perp = perp / perp_norm
+                rot1 = _rot_about_axis(perp, math.pi)
+        else:
+            rot1 = _rot_about_axis(axis, ang)
+
+    aligned = (rot1 @ (aligned - f0).T).T + f0
+    aligned = aligned + (head_translation - aligned[0])
+
+    if aligned.shape[0] < 3:
+        return aligned
+
+    d0 = aligned[1] - aligned[0]
+    d1 = aligned[2] - aligned[1]
+    plane_n = np.cross(d0, d1)
+    if float(np.linalg.norm(plane_n)) < 1e-10:
+        return aligned
+    plane_n = plane_n / float(np.linalg.norm(plane_n))
+
+    first_axis_world = np.asarray(head_rot @ _rot_axis(joint_axes[0], 0.0)[:, 0], dtype=np.float64)
+    # fallback
+    if float(np.linalg.norm(first_axis_world)) < 1e-12:
+        first_axis_world = np.array((0.0, 1.0, 0.0), dtype=np.float64)
+
+    h = head_axis
+    p = plane_n
+    p_par_comp = float(np.dot(p, h))
+    p_perp = p - p_par_comp * h
+    p_perp_norm = float(np.linalg.norm(p_perp))
+    if p_perp_norm < 1e-10:
+        return aligned
+
+    u = p_perp / p_perp_norm
+    v = np.cross(h, u)
+    a = first_axis_world
+    A = float(np.dot(a, u))
+    B = float(np.dot(a, v))
+    best_phi = math.atan2(-A, B)
+
+    if abs(best_phi) > 1e-10:
+        rot2 = _rot_about_axis(h, best_phi)
+        aligned = (rot2 @ (aligned - head_translation).T).T + head_translation
+
+    return aligned
 
 
 def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
@@ -231,7 +342,7 @@ def solve_shape_for_time(
         "curve_samples_n": 200,
         "curve_samples": None,
         "curve_samples_arc": None,
-        "align_func": linear_backend._align_targets,
+        "align_func": _align_targets,
         # Provide backend with twist values that do NOT include the model's
         # static base offset so geometry-based solvers are not biased.
         "twist_filtered": np.asarray(twist_no_base, dtype=np.float64).copy(),
@@ -243,14 +354,10 @@ def solve_shape_for_time(
     }
 
     backend_map = {
-        Backend.JACOB: jacob_backend.solve_with_jacob_least_squares,
-        Backend.LINEAR: linear_backend.solve_with_linear_placeholder,
-        Backend.ANNEAL: anneal_backend.solve_with_anneal_placeholder,
-        Backend.ACF: acf_backend.solve_with_acf_placeholder,
         Backend.STEP: step_backend.solve_with_step_placeholder,
     }
 
-    backend_fn = backend_map.get(cfg.backend, jacob_backend.solve_with_jacob_least_squares)
+    backend_fn = backend_map.get(cfg.backend, step_backend.solve_with_step_placeholder)
     # Build uniform arc-length curve samples (in meters) for precomp.
     total_length = float(np.sum(lengths_m))
     n_samples = int(precomp.get("curve_samples_n", 200))
