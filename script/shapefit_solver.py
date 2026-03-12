@@ -28,7 +28,9 @@ def integrate_twist(
 ) -> np.ndarray:
     """Compute per-x-joint twist and update state's low-pass filtered twist.
 
-    Returns the updated `state.twist_filtered`.
+    Returns the updated `state.twist_filtered` (this value does NOT include any
+    `base_twist_rad` offset; callers should add model offsets when assembling
+    final joint angles).
     """
     c1 = 1.0
     if t < cfg.startup_ramp_sec:
@@ -42,7 +44,10 @@ def integrate_twist(
         ],
         dtype=np.float64,
     )
-    twist_target = base_twist_rad + c1 * twist_raw
+    # Do not include the model's base twist offset here; keep the filtered
+    # twist purely from `g_fn` integration. The model's static +/-90deg offset
+    # should be applied when producing joint angles for the robot.
+    twist_target = c1 * twist_raw
 
     dt = 0.0 if state.last_t is None else max(0.0, float(t - state.last_t))
     if dt <= 0.0:
@@ -52,7 +57,6 @@ def integrate_twist(
     state.twist_filtered = alpha * state.twist_filtered + (1.0 - alpha) * twist_target
     state.last_t = float(t)
     return np.asarray(state.twist_filtered, dtype=np.float64).copy()
-
 
 
 def solve_shape_for_time(
@@ -68,9 +72,12 @@ def solve_shape_for_time(
     base_twist_rad: float,
     state: FitState,
     cfg: FitConfig,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     n_joints = len(joint_axes)
     # integrate and low-pass filter twist x -> updates state.twist_filtered
+    # Note: `integrate_twist` returns a filtered twist that does NOT include
+    # the model's static base_twist offset; we add that back only when
+    # assembling final joint angles so the internal integration is unbiased.
     twist_filtered = integrate_twist(
         g_fn=g_fn,
         t=t,
@@ -81,24 +88,26 @@ def solve_shape_for_time(
         cfg=cfg,
     )
 
-    # Skip solving for `yz` joints: only integrate x (twist) and pass empty yz
+    # Add model base twist back for the actual joint angle outputs.
+    twist_for_joints = base_twist_rad + twist_filtered
+
+    # Skip solving for `yz` joints: only integrate x (twist) and pass empty yz.
+    # State now stores only yz variables (no head). Head is kept internal and not returned.
     yz_len = len(yz_joint_indices_0b)
-    # Preserve existing head if available, otherwise zero head (6 values)
-    if getattr(state, "yz_and_head", None) is None or state.yz_and_head.size < yz_len + 6:
-        existing_head = np.zeros(6, dtype=np.float64)
+    if getattr(state, "yz_and_head", None) is None or state.yz_and_head.size < yz_len:
+        yz_vars = np.zeros(yz_len, dtype=np.float64)
     else:
-        existing_head = np.asarray(state.yz_and_head[yz_len:], dtype=np.float64).copy()
+        yz_vars = np.asarray(state.yz_and_head[:yz_len], dtype=np.float64).copy()
 
-    v = np.concatenate((np.zeros(yz_len, dtype=np.float64), existing_head))
-    state.yz_and_head = v
-
-    yz_vars = v[: len(yz_joint_indices_0b)]
-    head = v[len(yz_joint_indices_0b):]
+    # Do not store or return head; use zero head for FK unless external head is provided elsewhere.
+    head = np.zeros(6, dtype=np.float64)
+    # Update state with yz only
+    state.yz_and_head = yz_vars
     joint_angles = assemble_joint_angles(
         x_joint_indices_0b,
         yz_joint_indices_0b,
         joint_signs,
-        twist_filtered,
+        twist_for_joints,
         yz_vars,
         n_joints,
     )
@@ -109,4 +118,4 @@ def solve_shape_for_time(
         head_translation=np.asarray(head[:3], dtype=np.float64),
         head_rpy=np.asarray(head[3:], dtype=np.float64),
     )
-    return joint_angles, points, frames, head
+    return joint_angles, points, frames

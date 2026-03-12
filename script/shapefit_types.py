@@ -39,8 +39,9 @@ class FitState:
 
 
 def create_initial_state(num_yz_joints: int, num_x_joints: int) -> FitState:
+    # Store only yz variables in state (head is not stored/returned anymore).
     return FitState(
-        yz_and_head=np.zeros(num_yz_joints + 6, dtype=np.float64),
+        yz_and_head=np.zeros(num_yz_joints, dtype=np.float64),
         twist_filtered=np.zeros(num_x_joints, dtype=np.float64),
         last_t=None,
     )

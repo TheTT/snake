@@ -107,7 +107,7 @@ def _refresh_theoretical_state(t: float) -> None:
     if _LAST_REFRESH_T == t:
         return
 
-    joint_angles, _points, frames, _head = solve_shape_for_time(
+    joint_angles, _points, frames = solve_shape_for_time(
         f_fn=f,
         g_fn=g,
         t=float(t),
