@@ -204,6 +204,8 @@ def solve_shape_for_time(
     cfg: FitConfig,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     n_joints = len(joint_axes)
+    # DEBUG
+    first_run = state.last_t is None
     # integrate and low-pass filter twist x -> updates state.twist_filtered
     # Note: `integrate_twist` returns a filtered twist that does NOT include
     # the model's static base_twist offset; we add that back only when
@@ -271,6 +273,15 @@ def solve_shape_for_time(
         yz_vars,
         n_joints,
     )
+    # DEBUG On first solve, output control angles grouped by axis
+    if first_run:
+        x_idx = [i for i, a in enumerate(joint_axes) if a == "x"]
+        y_idx = [i for i, a in enumerate(joint_axes) if a == "y"]
+        z_idx = [i for i, a in enumerate(joint_axes) if a == "z"]
+        x_angles = [float(joint_angles[i]) for i in x_idx]
+        y_angles = [float(joint_angles[i]) for i in y_idx]
+        z_angles = [float(joint_angles[i]) for i in z_idx]
+        print("initial_joint_groups:", {"x": x_angles, "y": y_angles, "z": z_angles})
     points, frames = forward_points_and_frames(
         joint_angles=np.asarray(joint_angles, dtype=np.float64),
         joint_axes=joint_axes,
