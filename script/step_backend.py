@@ -51,7 +51,6 @@ def _dist_to_polyline(p, curve_pts, hint_i, radius):
 
 def solve_with_step_placeholder(
     *,
-    residual_fn: ResidualFn,
     v0: np.ndarray,
     cfg: FitConfig,
     precomp: dict | None = None,

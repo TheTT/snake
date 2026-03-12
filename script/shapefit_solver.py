@@ -319,22 +319,20 @@ def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
     }
 
 
-def solve_shape_for_time(
+def compute_twist_filtered(
     *,
-    f_fn: CurveFn,
     g_fn: TwistFn,
     t: float,
-    joint_axes: Sequence[str],
-    joint_signs: Sequence[float],
     x_joint_indices_0b: Sequence[int],
-    yz_joint_indices_0b: Sequence[int],
     lengths_m: Sequence[float],
     base_twist_rad: float,
     state: FitState,
     cfg: FitConfig,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    n_joints = len(joint_axes)
+) -> np.ndarray:
+    """Compute per-x-joint twist, apply startup ramp and lowpass, update state.
 
+    Returns twist values with base_twist removed (for FK/geometry use).
+    """
     c1 = 1.0
     if t < cfg.startup_ramp_sec:
         c1 = smoothstep01(max(0.0, t) / cfg.startup_ramp_sec)
@@ -357,40 +355,42 @@ def solve_shape_for_time(
     state.twist_filtered = alpha * state.twist_filtered + (1.0 - alpha) * twist_target
     state.last_t = float(t)
 
-    # `state.twist_filtered` currently contains the base_twist offset (used
-    # as the angle values sent to the robot). For FK and backend geometry
-    # computations we must remove the model's static base offset so frames
-    # / midpoints are not influenced by that 90deg model hack.
     twist_no_base = np.asarray(state.twist_filtered, dtype=np.float64) - float(base_twist_rad)
+    return twist_no_base
+
+
+def solve_shape_for_time(
+    *,
+    f_fn: CurveFn,
+    g_fn: TwistFn,
+    t: float,
+    joint_axes: Sequence[str],
+    joint_signs: Sequence[float],
+    x_joint_indices_0b: Sequence[int],
+    yz_joint_indices_0b: Sequence[int],
+    lengths_m: Sequence[float],
+    base_twist_rad: float,
+    state: FitState,
+    cfg: FitConfig,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    n_joints = len(joint_axes)
+
+    # Compute and filter per-x-joint twist (separated function)
+    twist_no_base = compute_twist_filtered(
+        g_fn=g_fn,
+        t=t,
+        x_joint_indices_0b=x_joint_indices_0b,
+        lengths_m=lengths_m,
+        base_twist_rad=base_twist_rad,
+        state=state,
+        cfg=cfg,
+    )
 
     seg_mid_s = segment_midpoint_s(lengths_m)
     tgt = build_target_points(f_fn, lengths_m, t, seg_mid_s, cfg.startup_ramp_sec)
     fk_callbacks = _build_fk_callbacks()
 
-    def residual(v: np.ndarray) -> np.ndarray:
-        yz_vars = v[: len(yz_joint_indices_0b)]
-        head = v[len(yz_joint_indices_0b):]
-        head_translation = np.asarray(head[:3], dtype=np.float64)
-        head_rpy = np.asarray(head[3:], dtype=np.float64)
-
-        # Use twist without base offset for FK inside residual/backends.
-        joint_angles = assemble_joint_angles(
-            x_joint_indices_0b,
-            yz_joint_indices_0b,
-            joint_signs,
-            twist_no_base,
-            yz_vars,
-            n_joints,
-        )
-        points, _frames = forward_points_and_frames(
-            joint_angles=np.asarray(joint_angles, dtype=np.float64),
-            joint_axes=joint_axes,
-            lengths_m=lengths_m,
-            head_translation=head_translation,
-            head_rpy=head_rpy,
-        )
-        mids = 0.5 * (points[:-1] + points[1:])
-        return (mids - tgt).reshape(-1)
+    # NOTE: residual construction removed — `step_backend` does not use it.
 
     # Swap this backend import to anneal_backend.solve_with_anneal_placeholder
     # without touching residual construction logic.
@@ -440,16 +440,20 @@ def solve_shape_for_time(
     precomp["curve_samples_arc"] = np.column_stack((s_m, curve_pts))
 
     v = backend_fn(
-        residual_fn=residual,
         v0=state.yz_and_head,
         cfg=cfg,
         precomp=precomp,
     )
 
-    state.yz_and_head = v
+    # Only update robot yz joint variables in state; use backend-returned head
+    v = np.asarray(v, dtype=np.float64).copy()
+    n_yz = len(yz_joint_indices_0b)
+    if v.size >= n_yz:
+        state.yz_and_head[:n_yz] = v[:n_yz]
 
-    yz_vars = v[: len(yz_joint_indices_0b)]
-    head = v[len(yz_joint_indices_0b):]
+    # Use preserved yz vars from state, but use head computed by backend (not written back to state)
+    yz_vars = state.yz_and_head[:n_yz].copy()
+    head = v[n_yz : n_yz + 6].copy() if v.size >= n_yz + 6 else state.yz_and_head[n_yz : n_yz + 6].copy()
     # Return joint angles that include the base twist (these are sent to the
     # robot controller). But compute FK frames/points using twist without the
     # base so the model's built-in -90deg is not applied to geometry.
