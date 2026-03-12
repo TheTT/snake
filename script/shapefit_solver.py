@@ -183,6 +183,12 @@ def solve_shape_for_time(
     state.twist_filtered = alpha * state.twist_filtered + (1.0 - alpha) * twist_target
     state.last_t = float(t)
 
+    # `state.twist_filtered` currently contains the base_twist offset (used
+    # as the angle values sent to the robot). For FK and backend geometry
+    # computations we must remove the model's static base offset so frames
+    # / midpoints are not influenced by that 90deg model hack.
+    twist_no_base = np.asarray(state.twist_filtered, dtype=np.float64) - float(base_twist_rad)
+
     seg_mid_s = segment_midpoint_s(lengths_m)
     tgt = build_target_points(f_fn, lengths_m, t, seg_mid_s, cfg.startup_ramp_sec)
     fk_callbacks = _build_fk_callbacks()
@@ -193,11 +199,12 @@ def solve_shape_for_time(
         head_translation = np.asarray(head[:3], dtype=np.float64)
         head_rpy = np.asarray(head[3:], dtype=np.float64)
 
+        # Use twist without base offset for FK inside residual/backends.
         joint_angles = assemble_joint_angles(
             x_joint_indices_0b,
             yz_joint_indices_0b,
             joint_signs,
-            state.twist_filtered,
+            twist_no_base,
             yz_vars,
             n_joints,
         )
@@ -225,7 +232,9 @@ def solve_shape_for_time(
         "curve_samples": None,
         "curve_samples_arc": None,
         "align_func": linear_backend._align_targets,
-        "twist_filtered": np.asarray(state.twist_filtered, dtype=np.float64).copy(),
+        # Provide backend with twist values that do NOT include the model's
+        # static base offset so geometry-based solvers are not biased.
+        "twist_filtered": np.asarray(twist_no_base, dtype=np.float64).copy(),
         "joint_axes": tuple(joint_axes),
         "joint_signs": np.asarray(joint_signs, dtype=np.float64),
         "x_joint_indices_0b": tuple(int(i) for i in x_joint_indices_0b),
@@ -264,7 +273,10 @@ def solve_shape_for_time(
 
     yz_vars = v[: len(yz_joint_indices_0b)]
     head = v[len(yz_joint_indices_0b):]
-    joint_angles = assemble_joint_angles(
+    # Return joint angles that include the base twist (these are sent to the
+    # robot controller). But compute FK frames/points using twist without the
+    # base so the model's built-in -90deg is not applied to geometry.
+    joint_angles_with_base = assemble_joint_angles(
         x_joint_indices_0b,
         yz_joint_indices_0b,
         joint_signs,
@@ -272,11 +284,21 @@ def solve_shape_for_time(
         yz_vars,
         n_joints,
     )
+
+    joint_angles_for_fk = assemble_joint_angles(
+        x_joint_indices_0b,
+        yz_joint_indices_0b,
+        joint_signs,
+        twist_no_base,
+        yz_vars,
+        n_joints,
+    )
+
     points, frames = forward_points_and_frames(
-        joint_angles=np.asarray(joint_angles, dtype=np.float64),
+        joint_angles=np.asarray(joint_angles_for_fk, dtype=np.float64),
         joint_axes=joint_axes,
         lengths_m=lengths_m,
         head_translation=np.asarray(head[:3], dtype=np.float64),
         head_rpy=np.asarray(head[3:], dtype=np.float64),
     )
-    return joint_angles, points, frames, head
+    return joint_angles_with_base, points, frames, head

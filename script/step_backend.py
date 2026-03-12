@@ -262,16 +262,16 @@ def solve_with_step_placeholder(
                     if yz_pos is not None:
                         yz_vars[yz_pos] += best_delta / sign
 
-            if seg4_before is not None:
-                seg4_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
-                print(
-                    f"[STEP] 第4节前一关节退火(pass={pass_idx + 1}/{passes})后: "
-                    f"seg={seg4_i}, joint={seg4_prev_joint}, axis={axis_name}; "
-                    f"中点到曲线距离 调整前={seg4_before:.9e} m, 调整后={seg4_after:.9e} m, "
-                    f"delta={seg4_after - seg4_before:+.3e} m; "
-                    f"best_delta={best_delta:+.3e} rad; "
-                    f"tries={n_tried}, accepted={n_accepted}, clipped={n_clipped}"
-                )
+            # if seg4_before is not None:
+            #     seg4_after = math.sqrt(max(0.0, _segment_midpoint_distance_sq_to_curve(seg4_i)))
+            #     print(
+            #         f"[STEP] 第4节前一关节退火(pass={pass_idx + 1}/{passes})后: "
+            #         f"seg={seg4_i}, joint={seg4_prev_joint}, axis={axis_name}; "
+            #         f"中点到曲线距离 调整前={seg4_before:.9e} m, 调整后={seg4_after:.9e} m, "
+            #         f"delta={seg4_after - seg4_before:+.3e} m; "
+            #         f"best_delta={best_delta:+.3e} rad; "
+            #         f"tries={n_tried}, accepted={n_accepted}, clipped={n_clipped}"
+            #     )
 
     v[:n_yz] = yz_vars
 
