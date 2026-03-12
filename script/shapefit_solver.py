@@ -403,18 +403,11 @@ def solve_shape_for_time(
 
     precomp = {
         "lengths_m": np.asarray(lengths_m, dtype=np.float64),
-        "seg_mid_s": np.asarray(seg_mid_s, dtype=np.float64),
-        "tgt": np.asarray(tgt, dtype=np.float64),
         # curve_samples: Nx3 points sampled uniformly by arc-length (meters)
-        # Prefer uniform arc-length sampling for downstream backends.
-        # Default to 200 samples; can be adjusted later if needed.
-        # s_m: absolute arc-length positions in meters
-        "curve_samples_n": 200,
         "curve_samples": None,
-        "curve_samples_arc": None,
+        # alignment helper used by step backend (or precomputed aligned_curve_samples)
         "align_func": _align_closure,
-        # Provide backend with twist values that do NOT include the model's
-        # static base offset so geometry-based solvers are not biased.
+        # twist values without base offset for geometry-based solvers
         "twist_filtered": np.asarray(twist_no_base, dtype=np.float64).copy(),
         "joint_axes": tuple(joint_axes),
         "joint_signs": np.asarray(joint_signs, dtype=np.float64),
