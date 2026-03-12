@@ -176,15 +176,17 @@ def integrate_yz_by_segments(
             each_y = theta_y / float(len(y_joints))
             for j in y_joints:
                 map_idx = yz_map[j]
-                sign = float(joint_signs[j])
-                yz_vars[map_idx] = each_y / sign if abs(sign) > eps else each_y
+                # Do not apply joint_signs inversion here; the sign is applied
+                # once in `assemble_joint_angles` to produce final robot joint
+                # angles. This prevents double-sign inversion.
+                yz_vars[map_idx] = each_y
 
         if z_joints:
             each_z = theta_z / float(len(z_joints))
             for j in z_joints:
                 map_idx = yz_map[j]
-                sign = float(joint_signs[j])
-                yz_vars[map_idx] = each_z / sign if abs(sign) > eps else each_z
+                # See note above for y_joints: apply sign only once downstream.
+                yz_vars[map_idx] = each_z
 
     return yz_vars
 
