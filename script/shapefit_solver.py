@@ -234,16 +234,26 @@ def solve_shape_for_time(
     v_norm = float(np.linalg.norm(v))
     T = v / v_norm if v_norm > 1e-12 else np.array([1.0, 0.0, 0.0], dtype=np.float64)
 
-    accel = p2 - 2.0 * p1 + p0
-    accel_proj = accel - np.dot(accel, T) * T
-    acc_norm = float(np.linalg.norm(accel_proj))
-
-    if acc_norm > 1e-12:
-        N = accel_proj / acc_norm
+    # Choose initial up by projecting global Z onto the plane orthogonal
+    # to the tangent `T`. This picks an `N` with as large a Z component
+    # as possible while remaining perpendicular to `T`. If the projection
+    # degenerates (T nearly aligned with Z), fall back to projecting global
+    # Y, and finally a safe arbitrary orthogonal vector.
+    z_world = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    proj = z_world - np.dot(z_world, T) * T
+    proj_norm = float(np.linalg.norm(proj))
+    if proj_norm > 1e-12:
+        N = proj / proj_norm
     else:
-        tmp = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-        tmp = tmp - np.dot(tmp, T) * T
-        N = tmp / np.linalg.norm(tmp)
+        y_world = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        proj = y_world - np.dot(y_world, T) * T
+        proj_norm = float(np.linalg.norm(proj))
+        if proj_norm > 1e-12:
+            N = proj / proj_norm
+        else:
+            tmp = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+            tmp = tmp - np.dot(tmp, T) * T
+            N = tmp / np.linalg.norm(tmp)
 
     B = np.cross(T, N)
 
