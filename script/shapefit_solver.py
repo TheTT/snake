@@ -24,12 +24,13 @@ def _align_targets(
     head_translation: np.ndarray,
     head_rpy: np.ndarray,
     joint_axes: Sequence[str],
-) -> np.ndarray:
+    prev_plane: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray | None]:
     # Inline copy of previous linear_backend._align_targets so step backend
     # can use alignment without depending on linear_backend.
     aligned = np.asarray(tgt, dtype=np.float64).copy()
     if aligned.shape[0] < 2:
-        return aligned
+        return aligned, None
     f0 = aligned[0].copy()
 
     head_rot = _rpy_to_mat3(float(head_rpy[0]), float(head_rpy[1]), float(head_rpy[2]))
@@ -39,6 +40,8 @@ def _align_targets(
         head_axis = np.array((1.0, 0.0, 0.0), dtype=np.float64)
     else:
         head_axis = head_axis / hnorm
+    # define h (head axis) early for use in zero-curvature projection
+    h = head_axis
 
     src = aligned[1] - aligned[0]
     tangent_norm = float(np.linalg.norm(src))
@@ -98,14 +101,32 @@ def _align_targets(
     aligned = aligned + (head_translation - aligned[0])
 
     if aligned.shape[0] < 3:
-        return aligned
+        return aligned, None
 
     d0 = aligned[1] - aligned[0]
     d1 = aligned[2] - aligned[1]
     plane_n = np.cross(d0, d1)
-    if float(np.linalg.norm(plane_n)) < 1e-10:
-        return aligned
-    plane_n = plane_n / float(np.linalg.norm(plane_n))
+    pn_norm = float(np.linalg.norm(plane_n))
+    if pn_norm < 1e-10:
+        # curvature nearly zero: attempt to derive plane normal from previous up
+        if prev_plane is not None:
+            prev = np.asarray(prev_plane, dtype=np.float64)
+            prev_norm = float(np.linalg.norm(prev))
+            if prev_norm >= 1e-12:
+                prev_u = prev / prev_norm
+                # project previous up into plane perpendicular to head axis h and normalize
+                proj = prev_u - float(np.dot(prev_u, h)) * h
+                proj_norm = float(np.linalg.norm(proj))
+                if proj_norm >= 1e-12:
+                    plane_n = proj / proj_norm
+                else:
+                    return aligned, None
+            else:
+                return aligned, None
+        else:
+            return aligned, None
+    else:
+        plane_n = plane_n / pn_norm
 
     first_axis_world = np.asarray(head_rot @ _rot_axis(joint_axes[0], 0.0)[:, 0], dtype=np.float64)
     # fallback
@@ -118,7 +139,7 @@ def _align_targets(
     p_perp = p - p_par_comp * h
     p_perp_norm = float(np.linalg.norm(p_perp))
     if p_perp_norm < 1e-10:
-        return aligned
+        return aligned, None
 
     u = p_perp / p_perp_norm
     v = np.cross(h, u)
@@ -127,11 +148,53 @@ def _align_targets(
     B = float(np.dot(a, v))
     best_phi = math.atan2(-A, B)
 
-    if abs(best_phi) > 1e-10:
-        rot2 = _rot_about_axis(h, best_phi)
-        aligned = (rot2 @ (aligned - head_translation).T).T + head_translation
+    # Prepare two candidate rotations: best_phi and best_phi + pi (opposite)
+    if abs(best_phi) <= 1e-10:
+        # no meaningful rotation
+        return aligned, plane_n
 
-    return aligned
+    rot2_a = _rot_about_axis(h, best_phi)
+    rot2_b = _rot_about_axis(h, best_phi + math.pi)
+
+    aligned_a = (rot2_a @ (aligned - head_translation).T).T + head_translation
+    aligned_b = (rot2_b @ (aligned - head_translation).T).T + head_translation
+
+    # resulting rotated plane normals
+    d0a = aligned_a[1] - aligned_a[0]
+    d1a = aligned_a[2] - aligned_a[1]
+    plane_na = np.cross(d0a, d1a)
+    if float(np.linalg.norm(plane_na)) >= 1e-12:
+        plane_na = plane_na / float(np.linalg.norm(plane_na))
+    else:
+        plane_na = plane_n
+
+    d0b = aligned_b[1] - aligned_b[0]
+    d1b = aligned_b[2] - aligned_b[1]
+    plane_nb = np.cross(d0b, d1b)
+    if float(np.linalg.norm(plane_nb)) >= 1e-12:
+        plane_nb = plane_nb / float(np.linalg.norm(plane_nb))
+    else:
+        plane_nb = plane_n
+
+    # If previous plane is provided, choose candidate closer to previous (use cross product magnitude)
+    if prev_plane is not None:
+        prev = np.asarray(prev_plane, dtype=np.float64)
+        pn_norm = float(np.linalg.norm(prev))
+        if pn_norm >= 1e-12:
+            prev = prev / pn_norm
+            # cross magnitude ~ sin(angle) -> smaller means more aligned (smaller angular difference)
+            diff_a = float(np.linalg.norm(np.cross(prev, plane_na)))
+            diff_b = float(np.linalg.norm(np.cross(prev, plane_nb)))
+            if diff_a <= diff_b:
+                return aligned_a, plane_na
+            else:
+                return aligned_b, plane_nb
+
+    # No previous plane: choose the candidate whose rotation angle magnitude is smaller
+    if abs(best_phi) <= abs(best_phi + math.pi):
+        return aligned_a, plane_na
+    else:
+        return aligned_b, plane_nb
 
 
 def _build_fk_callbacks() -> dict[str, Callable[..., Any]]:
@@ -331,6 +394,13 @@ def solve_shape_for_time(
 
     # Swap this backend import to anneal_backend.solve_with_anneal_placeholder
     # without touching residual construction logic.
+    def _align_closure(tgt_arr, head_translation, head_rpy, joint_axes):
+        aligned_res, chosen_plane = _align_targets(
+            tgt_arr, head_translation, head_rpy, joint_axes, prev_plane=state.last_align_plane_n
+        )
+        state.last_align_plane_n = None if chosen_plane is None else np.asarray(chosen_plane, dtype=np.float64)
+        return aligned_res
+
     precomp = {
         "lengths_m": np.asarray(lengths_m, dtype=np.float64),
         "seg_mid_s": np.asarray(seg_mid_s, dtype=np.float64),
@@ -342,7 +412,7 @@ def solve_shape_for_time(
         "curve_samples_n": 200,
         "curve_samples": None,
         "curve_samples_arc": None,
-        "align_func": _align_targets,
+        "align_func": _align_closure,
         # Provide backend with twist values that do NOT include the model's
         # static base offset so geometry-based solvers are not biased.
         "twist_filtered": np.asarray(twist_no_base, dtype=np.float64).copy(),

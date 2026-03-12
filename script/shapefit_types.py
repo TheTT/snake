@@ -36,6 +36,8 @@ class FitState:
     yz_and_head: np.ndarray
     twist_filtered: np.ndarray
     last_t: float | None = None
+    # last aligned plane normal (world frame) used for temporal continuity
+    last_align_plane_n: np.ndarray | None = None
 
 
 def create_initial_state(num_yz_joints: int, num_x_joints: int) -> FitState:
@@ -43,4 +45,5 @@ def create_initial_state(num_yz_joints: int, num_x_joints: int) -> FitState:
         yz_and_head=np.zeros(num_yz_joints + 6, dtype=np.float64),
         twist_filtered=np.zeros(num_x_joints, dtype=np.float64),
         last_t=None,
+        last_align_plane_n=None,
     )
