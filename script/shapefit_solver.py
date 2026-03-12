@@ -93,6 +93,35 @@ def integrate_yz_by_segments(
     x_positions = [float(s_nodes[i + 1]) for i in x_sorted]
     boundaries = [0.0, *x_positions, 1.0]
 
+    # Compute head frame aligned with the curve at s=0
+    ep = 1e-4
+    p0 = np.asarray(f_fn(float(t), 0.0), dtype=np.float64)
+    p1 = np.asarray(f_fn(float(t), ep), dtype=np.float64)
+    p2 = np.asarray(f_fn(float(t), 2.0 * ep), dtype=np.float64)
+
+    v = p1 - p0
+    v_norm = float(np.linalg.norm(v))
+    T = v / v_norm if v_norm > 1e-12 else np.array([1.0, 0.0, 0.0], dtype=np.float64)
+
+    accel = p2 - 2.0 * p1 + p0
+    accel_proj = accel - np.dot(accel, T) * T
+    acc_norm = float(np.linalg.norm(accel_proj))
+    if acc_norm > 1e-12:
+        N = accel_proj / acc_norm
+    else:
+        tmp = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        tmp = tmp - np.dot(tmp, T) * T
+        tmp_norm = float(np.linalg.norm(tmp))
+        if tmp_norm > 1e-12:
+            N = tmp / tmp_norm
+        else:
+            tmp = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+            tmp = tmp - np.dot(tmp, T) * T
+            N = tmp / float(np.linalg.norm(tmp))
+
+    B = np.cross(T, N)
+    head_rot = np.column_stack((-T, -N, B))
+
     yz_zero = np.zeros(yz_len, dtype=np.float64)
     x_only_joint_angles = assemble_joint_angles(
         x_joint_indices_0b,
@@ -106,13 +135,14 @@ def integrate_yz_by_segments(
         joint_angles=np.asarray(x_only_joint_angles, dtype=np.float64),
         joint_axes=joint_axes,
         lengths_m=lengths_m,
-        head_translation=np.zeros(3, dtype=np.float64),
+        head_translation=p0,
         head_rpy=np.zeros(3, dtype=np.float64),
+        head_rot=head_rot,
     )
 
     def _segment_start_frame(seg_index: int) -> np.ndarray:
         if seg_index == 0:
-            return np.eye(3, dtype=np.float64)
+            return head_rot
         x_joint_idx = x_sorted[seg_index - 1]
         return np.asarray(frames_x[x_joint_idx], dtype=np.float64)
 

@@ -102,6 +102,7 @@ def forward_points_and_frames(
     lengths_m: Sequence[float],
     head_translation: Sequence[float] | np.ndarray,
     head_rpy: Sequence[float] | np.ndarray,
+    head_rot: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     n_joints = len(joint_axes)
     if len(joint_angles) != n_joints:
@@ -113,7 +114,10 @@ def forward_points_and_frames(
     frames = np.zeros((n_joints + 1, 3, 3), dtype=np.float64)
 
     pos = np.asarray(head_translation, dtype=np.float64).copy()
-    rot = _rpy_to_mat3(float(head_rpy[0]), float(head_rpy[1]), float(head_rpy[2]))
+    if head_rot is not None:
+        rot = np.asarray(head_rot, dtype=np.float64).copy()
+    else:
+        rot = _rpy_to_mat3(float(head_rpy[0]), float(head_rpy[1]), float(head_rpy[2]))
     points[0] = pos
 
     for i in range(n_joints):
