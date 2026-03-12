@@ -69,7 +69,7 @@ def integrate_yz_by_segments(
     x_joint_indices_0b: Sequence[int],
     yz_joint_indices_0b: Sequence[int],
     lengths_m: Sequence[float],
-    twist_for_joints: np.ndarray,
+    twist_no_base: np.ndarray,
     head_translation: np.ndarray,
     head_rot: np.ndarray,
     integration_samples: int = 200,
@@ -100,7 +100,7 @@ def integrate_yz_by_segments(
         x_joint_indices_0b,
         yz_joint_indices_0b,
         joint_signs,
-        np.asarray(twist_for_joints, dtype=np.float64),
+        np.asarray(twist_no_base, dtype=np.float64),
         yz_zero,
         n_joints,
     )
@@ -255,7 +255,7 @@ def solve_shape_for_time(
         x_joint_indices_0b=x_joint_indices_0b,
         yz_joint_indices_0b=yz_joint_indices_0b,
         lengths_m=lengths_m,
-        twist_for_joints=twist_for_joints,
+        twist_no_base=twist_filtered,
         head_translation=p0,
         head_rot=head_rot,
         integration_samples=200,
@@ -282,8 +282,17 @@ def solve_shape_for_time(
         y_angles = [float(joint_angles[i]) for i in y_idx]
         z_angles = [float(joint_angles[i]) for i in z_idx]
         print("initial_joint_groups:", {"x": x_angles, "y": y_angles, "z": z_angles})
+    # Compute FK for geometry using twist without the model base offset.
+    joint_angles_for_fk = assemble_joint_angles(
+        x_joint_indices_0b,
+        yz_joint_indices_0b,
+        joint_signs,
+        twist_filtered,
+        yz_vars,
+        n_joints,
+    )
     points, frames = forward_points_and_frames(
-        joint_angles=np.asarray(joint_angles, dtype=np.float64),
+        joint_angles=np.asarray(joint_angles_for_fk, dtype=np.float64),
         joint_axes=joint_axes,
         lengths_m=lengths_m,
         head_translation=p0,
