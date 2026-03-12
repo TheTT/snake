@@ -386,14 +386,8 @@ def solve_shape_for_time(
         cfg=cfg,
     )
 
-    seg_mid_s = segment_midpoint_s(lengths_m)
-    tgt = build_target_points(f_fn, lengths_m, t, seg_mid_s, cfg.startup_ramp_sec)
     fk_callbacks = _build_fk_callbacks()
 
-    # NOTE: residual construction removed — `step_backend` does not use it.
-
-    # Swap this backend import to anneal_backend.solve_with_anneal_placeholder
-    # without touching residual construction logic.
     def _align_closure(tgt_arr, head_translation, head_rpy, joint_axes):
         aligned_res, chosen_plane = _align_targets(
             tgt_arr, head_translation, head_rpy, joint_axes, prev_plane=state.last_align_plane_n
