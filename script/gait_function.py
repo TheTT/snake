@@ -45,42 +45,42 @@ def _ensure_body_length():
         _BODY_LENGTH_M = float(_DEFAULT_BODY_LENGTH_M)
 
 
-# def f(t: float, s: float) -> Vec3:
-#     """Sample evolving target curve: a flattened helix in 3D.
+def f(t: float, s: float) -> Vec3:
+    """Sample evolving target curve: a flattened helix in 3D.
 
-#     Args:
-#         t: time in seconds, t >= 0.
-#         s: normalized arc parameter in [0, 1].
-#     """
+    Args:
+        t: time in seconds, t >= 0.
+        s: normalized arc parameter in [0, 1].
+    """
+    # ss = max(0.0, min(1.0, float(s)))
+    _ensure_body_length()
+    body_len = _BODY_LENGTH_M if _BODY_LENGTH_M is not None else _DEFAULT_BODY_LENGTH_M
+
+    # spatial wavenumber k applies to normalized s
+    k = float(_F_PARAMS["k"])
+    freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
+    ah = float(_F_PARAMS["ah"])  # z amplitude
+    av = float(_F_PARAMS["av"])  # y amplitude
+
+    phase = 2.0 * math.pi * (k * s - freq * float(t))
+
+    x = body_len * s
+    y = av * math.cos(phase)
+    z = ah * math.sin(phase)
+    return x, y, z
+
+# def f(t: float, s: float) -> Vec3:
 #     ss = max(0.0, min(1.0, float(s)))
 #     _ensure_body_length()
 #     body_len = _BODY_LENGTH_M if _BODY_LENGTH_M is not None else _DEFAULT_BODY_LENGTH_M
 
-#     # spatial wavenumber k applies to normalized s
-#     k = float(_F_PARAMS["k"])
-#     freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
 #     ah = float(_F_PARAMS["ah"])  # z amplitude
 #     av = float(_F_PARAMS["av"])  # y amplitude
 
-#     phase = 2.0 * math.pi * (k * ss - freq * float(t))
-
 #     x = body_len * ss
-#     y = av * math.cos(phase)
-#     z = ah * math.sin(phase)
+#     y = av * s * s
+#     z = 0
 #     return x, y, z
-
-def f(t: float, s: float) -> Vec3:
-    ss = max(0.0, min(1.0, float(s)))
-    _ensure_body_length()
-    body_len = _BODY_LENGTH_M if _BODY_LENGTH_M is not None else _DEFAULT_BODY_LENGTH_M
-
-    ah = float(_F_PARAMS["ah"])  # z amplitude
-    av = float(_F_PARAMS["av"])  # y amplitude
-
-    x = body_len * ss
-    y = av * s * s
-    z = 0
-    return x, y, z
 
 
 def g(t: float, s: float) -> float:
