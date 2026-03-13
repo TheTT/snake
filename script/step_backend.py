@@ -66,10 +66,10 @@ def _optimize_single_joint(
 
     # TODO Anneal
 
-    # tmp: compare initval, initval + 0.001, initval - 0.001
+    # tmp: compare initval, initval + 0.01, initval - 0.01
     best_dist = dist(initval)
     best_val = initval
-    for delta in [0.001, -0.001]:
+    for delta in [0.01, -0.01]:
         val = initval + delta
         d = dist(val)
         if d < best_dist:

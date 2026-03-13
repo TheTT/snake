@@ -27,43 +27,41 @@ except Exception:
     pass
 
 
-def f(t: float, s: float) -> np.ndarray:
-    """Sample evolving target curve: a flattened helix in 3D.
-
-    Args:
-        t: time in seconds, t >= 0.
-        s: normalized arc parameter in [0, 1].
-    """
-    ss = max(0.0, min(1.0, float(s)))
-
-    # spatial wavenumber k applies to normalized s
-    k = float(_F_PARAMS["k"])
-    freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
-    ah = float(_F_PARAMS["ah"])  # z amplitude
-    av = float(_F_PARAMS["av"])  # y amplitude
-
-    phase = 2.0 * math.pi * (k * ss - freq * float(t))
-
-    x = ss
-    y = av * math.cos(phase)
-    z = ah * math.sin(phase)
-    return np.array([x, y, z], dtype=np.float64)
-
 # def f(t: float, s: float) -> np.ndarray:
-#     ss = max(0.0, min(1.0, float(s)))
-#     _ensure_body_length()
-#     body_len = BODY_LENGTH_M if BODY_LENGTH_M is not None else _DEFAULT_BODY_LENGTH_M
+#     """Sample evolving target curve: a flattened helix in 3D.
 
+#     Args:
+#         t: time in seconds, t >= 0.
+#         s: normalized arc parameter in [0, 1].
+#     """
+#     ss = max(0.0, min(1.0, float(s)))
+
+#     # spatial wavenumber k applies to normalized s
+#     k = float(_F_PARAMS["k"])
+#     freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
 #     ah = float(_F_PARAMS["ah"])  # z amplitude
 #     av = float(_F_PARAMS["av"])  # y amplitude
-#     freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
 
-#     phase = 2.0 * math.pi * freq * float(t)
+#     phase = 2.0 * math.pi * (k * ss - freq * float(t))
 
-#     x = body_len * ss
-#     y = av * s * s * math.cos(phase)
-#     z = 0
-#     return x, y, z
+#     x = ss
+#     y = av * math.cos(phase)
+#     z = ah * math.sin(phase)
+#     return np.array([x, y, z], dtype=np.float64)
+
+def f(t: float, s: float) -> np.ndarray:
+    ss = max(0.0, min(1.0, float(s)))
+
+    ah = float(_F_PARAMS["ah"])  # z amplitude
+    av = float(_F_PARAMS["av"])  # y amplitude
+    freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
+
+    phase = 2.0 * math.pi * freq * float(t)
+
+    x = ss
+    y = 0
+    z = av * s * s * math.cos(phase)
+    return x, y, z
 
 
 def g(t: float, s: float) -> float:
