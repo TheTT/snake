@@ -98,8 +98,11 @@ def assemble_joint(
 
     joint_angles[i] = joint_tar + base_twist for x joints.
     """
-    ...
-    # return joint_angles
+    joint_angles = joint_tar.copy()
+    for i in x_joint_indices_0b:
+        joint_angles[i] += base_twist_rad
+
+    return joint_angles
 
 
 def _refresh_theoretical_state(t: float) -> None:
