@@ -128,16 +128,28 @@ def get_ftrans(
 
 def get_hint(
     fplist: np.ndarray,
-    joint_axes: Sequence[Axis],
-    joint_signs: Sequence[float],
-    x_joint_indices_0b: Sequence[int],
+    jn: int,
     seglen: Sequence[float],
     state: FitState,
 ) -> np.ndarray:
-    """Get hint indices for closest curve point to each joint.
+    """Get hint indices for closest curve point to head, each joint and tail.
     Uses locality to speed up the search.
     """
-    ...
+    hint_i = np.zeros(jn + 2, dtype=np.int32)
+    hint_i[0] = 0
+    i = 0
+    d = 0.0
+    for j in range(1, len(fplist)):
+        d += float(np.linalg.norm(fplist[j] - fplist[j - 1]))
+        while i < jn + 1 and d > seglen[i]:
+            d -= seglen[i]
+            i += 1
+            hint_i[i] = j
+        if i >= jn + 1:
+            break
+    hint_i[-1] = len(fplist) - 1
+
+    return hint_i
 
 
 def solve_shape_for_time(
@@ -165,23 +177,23 @@ def solve_shape_for_time(
     fplist = get_fsample(f_fn, t, _SAMPLE_NUMBER)
     # ftrans is a 3*3 transform
     ftrans, state.last_UP = get_ftrans(fplist, totlen, joint_axes[0], state.last_UP)
-    ftrans = np.asarray(ftrans, dtype=np.float64)
     fplist = (ftrans @ fplist.T).T
     # Hint indices for closest curve point
     hint_i = get_hint(
         fplist=fplist,
-        joint_axes=joint_axes,
-        joint_signs=joint_signs,
-        x_joint_indices_0b=x_joint_indices_0b,
+        jn=n_joints,
         seglen=seglen,
         state=state,
     )
     backend_param = FitParam(
+        jn=n_joints,
         fplist=fplist,
         hint_i=hint_i,
         twist_no_base=twist_no_base,
         joint_axes=joint_axes,
         joint_signs=joint_signs,
+        seglen=seglen,
+        hint_rad=_HINT_RADIUS,
     )
     v = backend_fn(
         state.joint_tar,
