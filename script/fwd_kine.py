@@ -10,23 +10,35 @@ import numpy as np
 def _rot_x(angle: float) -> np.ndarray:
     c = math.cos(angle)
     s = math.sin(angle)
-    return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]], dtype=np.float64)
+    return np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, c, -s],
+        [0.0, s, c]
+    ], dtype=np.float64)
 
 
 def _rot_y(angle: float) -> np.ndarray:
     c = math.cos(angle)
     s = math.sin(angle)
-    return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]], dtype=np.float64)
+    return np.array([
+        [c, 0.0, s],
+        [0.0, 1.0, 0.0],
+        [-s, 0.0, c]
+    ], dtype=np.float64)
 
 
 def _rot_z(angle: float) -> np.ndarray:
     c = math.cos(angle)
     s = math.sin(angle)
-    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+    return np.array([
+        [c, -s, 0.0],
+        [s, c, 0.0],
+        [0.0, 0.0, 1.0]
+    ], dtype=np.float64)
 
 
 class fk:
-    def __init__(self, lengths_m: Sequence[float], joint_axes: Sequence[Axis]):
+    def __init__(self, lengths_m: Sequence[float], joint_axes: Sequence[Axis], init_angles: Sequence[float]) -> None:
         ...
 
     def setval(self, j: int, angle: float) -> None:

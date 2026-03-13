@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 from enum import IntEnum
+from typing import Sequence
 
 import numpy as np
 
@@ -13,17 +14,8 @@ TwistFn = Callable[[float, float], float]
 
 @dataclass
 class FitState:
-    joint_yz: np.ndarray
-    joint_x: np.ndarray  # no init 90deg
-    last_t: float | None = None
+    joint_tar: np.ndarray
     last_align_plane_n: np.ndarray | None = None
-
-
-@dataclass
-class FitParam:
-    fplist: np.ndarray
-    twist_no_base: np.ndarray
-BackendFn = Callable[[np.ndarray, FitParam], np.ndarray]
 
 
 class Axis(IntEnum):
@@ -32,10 +24,17 @@ class Axis(IntEnum):
     Z = 2
 
 
-def create_initial_state(num_yz_joints: int, num_x_joints: int) -> FitState:
+@dataclass
+class FitParam:
+    fplist: np.ndarray
+    twist_no_base: np.ndarray
+    joint_axes: Sequence[Axis]
+    joint_signs: Sequence[float]
+BackendFn = Callable[[np.ndarray, FitParam], np.ndarray]
+
+
+def create_initial_state(num_joints: int) -> FitState:
     return FitState(
-        joint_yz=np.zeros(num_yz_joints, dtype=np.float64),
-        joint_x=np.zeros(num_x_joints, dtype=np.float64),
-        last_t=None,
+        joint_tar=np.zeros(num_joints, dtype=np.float64),
         last_align_plane_n=None,
     )

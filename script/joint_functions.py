@@ -8,7 +8,7 @@ This module exposes:
 from __future__ import annotations
 
 import math
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Sequence
 
 import numpy as np
 from shapefit_types import Axis
@@ -68,11 +68,9 @@ if len(POLYLINE_SEGMENT_LENGTHS_M) != N_JOINTS + 1:
     )
 
 X_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a == Axis.X]
-YZ_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a in (Axis.Y, Axis.Z)]
 
 _FIT_STATE = create_initial_state(
-    num_yz_joints=len(YZ_JOINT_INDICES_0B),
-    num_x_joints=len(X_JOINT_INDICES_0B),
+    num_joints=N_JOINTS,
 )
 
 _LATEST_JOINT_ANGLES: List[float] = [0.0 for _ in range(N_JOINTS)]
@@ -87,24 +85,43 @@ def _np_to_mat3(r: np.ndarray) -> Mat3:
     )
 
 
+def assemble_joint(
+    joint_tar: np.ndarray,
+    n_joints: int,
+    x_joint_indices_0b: Sequence[int],
+) -> np.ndarray:
+    """Assemble full joint angle array from state.
+
+    joint_angles[i] = joint_tar + base_twist for x joints.
+    """
+    ...
+    # return joint_angles
+
+
 def _refresh_theoretical_state(t: float) -> None:
     global _LAST_REFRESH_T
 
     if _LAST_REFRESH_T == t:
         return
 
-    joint_angles = solve_shape_for_time(
+    solve_shape_for_time(
+        _FIT_STATE,
         f_fn=f,
         g_fn=g,
         t=float(t),
+        n_joints=N_JOINTS,
         joint_axes=JOINT_AXES,
         joint_signs=JOINT_SIGNS,
         x_joint_indices_0b=X_JOINT_INDICES_0B,
-        yz_joint_indices_0b=YZ_JOINT_INDICES_0B,
         lengths_m=POLYLINE_SEGMENT_LENGTHS_M,
         base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
-        state=_FIT_STATE,
         backend_fn=step_backend.step_backend,
+    )
+
+    joint_angles = assemble_joint(
+        joint_tar=_FIT_STATE.joint_tar,
+        n_joints=N_JOINTS,
+        x_joint_indices_0b=X_JOINT_INDICES_0B,
     )
 
     for i in range(N_JOINTS):
