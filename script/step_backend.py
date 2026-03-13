@@ -17,7 +17,12 @@ def _point_segment_dist_sq(p, a, b):
     return float(np.dot(d, d))
 
 
-def _dist_to_polyline(p, curve_pts, hint_i, radius):
+def _dist_to_polyline(
+    p: np.ndarray,
+    curve_pts: np.ndarray,
+    hint_i: int,
+    radius: float,
+) -> float:
     """
     curve_pts: Nx3 polyline
     hint_i: approximate index (uses locality)
@@ -25,13 +30,12 @@ def _dist_to_polyline(p, curve_pts, hint_i, radius):
     n = len(curve_pts)
     if n < 2:
         d = p - curve_pts[0] if n == 1 else p
-        return float(np.dot(d, d)), 0
+        return float(np.dot(d, d))
 
     start = max(0, hint_i - int(radius))
     end = min(n - 2, hint_i + int(radius))
 
     best = 1e30
-    best_i = start
 
     for i in range(start, end + 1):
         d = _point_segment_dist_sq(
@@ -41,9 +45,8 @@ def _dist_to_polyline(p, curve_pts, hint_i, radius):
         )
         if d < best:
             best = d
-            best_i = i
 
-    return best, int(best_i)
+    return best
 
 
 def _optimize_single_joint(
@@ -61,4 +64,23 @@ def step_backend(
     v0: np.ndarray,
     param: FitParam,
 ) -> np.ndarray:
-    ...
+    fk = FK(
+        jn=param.jn,
+        init_angles=v0,
+        seg_len=param.seglen,
+        joint_axes=param.joint_axes,
+        joint_signs=param.joint_signs,
+    )
+    for i in range(param.jn):
+        v0[i] = _optimize_single_joint(
+            seg_i=i,
+            initval=v0[i],
+            fk=fk,
+            dist_fn=lambda p: _dist_to_polyline(
+                p=p,
+                curve_pts=param.fplist,
+                hint_i=param.hint_i[i + 1],
+                radius=param.hint_rad,
+            ),
+        )
+    return np.zeros_like(v0)

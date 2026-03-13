@@ -41,7 +41,7 @@ class FK:
     def __init__(
         self, jn: int,
         *,
-        init_angles: Sequence[float],
+        init_angles: np.ndarray,
         seg_len: Sequence[float],
         joint_axes: Sequence[Axis],
         joint_signs: Sequence[float],
@@ -97,8 +97,8 @@ class FK:
         # matrix multiply previous frame by joint rotation to get new frame
         self.M[d] = self.M[d - 1] @ rot
         # update position of point d (endpoint of previous segment)
-        seg_len = float(self.l[d]) if d < len(self.l) else 0.0
-        self.p[d] = self.p[d - 1] + (self.M[d] @ np.array([seg_len, 0.0, 0.0], dtype=np.float64))
+        seg_len = self.l[d]
+        self.p[d + 1] = self.p[d] + (self.M[d] @ np.array([-seg_len, 0.0, 0.0], dtype=np.float64))
 
 
 __all__ = ["FK"]

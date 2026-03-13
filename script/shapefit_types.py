@@ -25,11 +25,14 @@ class Axis(IntEnum):
 
 @dataclass
 class FitParam:
+    jn: int
     fplist: np.ndarray
     hint_i: np.ndarray
     twist_no_base: np.ndarray
     joint_axes: Sequence[Axis]
     joint_signs: Sequence[float]
+    seglen: Sequence[float]
+    hint_rad: float
 BackendFn = Callable[[np.ndarray, FitParam], np.ndarray]
 
 
