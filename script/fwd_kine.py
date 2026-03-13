@@ -62,7 +62,9 @@ class FK:
     def setval(self, i: int, angle: float) -> None:
         if i < 0 or i >= self.jn:
             raise ValueError(f"Joint index out of range: {i}")
-        self.d = int(i + 1)
+        if self.v[i] == angle:
+            return
+        self.d = min(self.d, i + 1)
         self.v[i] = angle
 
     def geti(self, i: int) -> np.ndarray:

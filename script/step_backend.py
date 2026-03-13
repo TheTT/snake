@@ -49,6 +49,9 @@ def _dist_to_polyline(
     return best
 
 
+# Const parameters for anneal
+
+
 def _optimize_single_joint(
     seg_i: int,
     initval: float,
@@ -57,7 +60,23 @@ def _optimize_single_joint(
     dist_fn: Callable[[np.ndarray], float],
 ) -> float:
     """Anneal v[seg_i] from initval to minimize distance from curve to p[seg_i + 1.5]."""
-    ...
+    def dist(val: float) -> float:
+        fk.setval(seg_i, val)
+        return dist_fn(fk.getf(float(seg_i) + 1.5))
+
+    # TODO Anneal
+
+    # tmp: compare initval, initval + 0.001, initval - 0.001
+    best_dist = dist(initval)
+    best_val = initval
+    for delta in [0.001, -0.001]:
+        val = initval + delta
+        d = dist(val)
+        if d < best_dist:
+            best_dist = d
+            best_val = val
+
+    return best_val
 
 
 def step_backend(
@@ -71,16 +90,18 @@ def step_backend(
         joint_axes=param.joint_axes,
         joint_signs=param.joint_signs,
     )
+    v = v0.copy()
     for i in range(param.jn):
-        v0[i] = _optimize_single_joint(
+        v[i] = _optimize_single_joint(
             seg_i=i,
-            initval=v0[i],
+            initval=v[i],
             fk=fk,
             dist_fn=lambda p: _dist_to_polyline(
                 p=p,
                 curve_pts=param.fplist,
-                hint_i=param.hint_i[i + 1],
+                hint_i=(param.hint_i[i + 1] + param.hint_i[i + 2]) // 2,
                 radius=param.hint_rad,
             ),
         )
-    return np.zeros_like(v0)
+        fk.setval(i, v[i])
+    return v
