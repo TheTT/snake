@@ -14,7 +14,7 @@ TwistFn = Callable[[float, float], float]
 @dataclass
 class FitState:
     joint_tar: np.ndarray
-    last_UP: np.ndarray | None = None
+    last_UP: np.ndarray
 
 
 class Axis(IntEnum):
@@ -36,5 +36,5 @@ BackendFn = Callable[[np.ndarray, FitParam], np.ndarray]
 def create_initial_state(num_joints: int) -> FitState:
     return FitState(
         joint_tar=np.zeros(num_joints, dtype=np.float64),
-        last_align_plane_n=None,
+        last_UP=np.array([0.0, 0.0, 1.0], dtype=np.float64),
     )
