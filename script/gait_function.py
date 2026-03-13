@@ -11,10 +11,7 @@ import json
 import math
 from pathlib import Path
 from typing import Tuple
-
-Vec3 = Tuple[float, float, float]
-
-import joint_functions as jf
+import numpy as np
 
 
 # Load parameters from script/gait/f.json (ah,av,k,freq)
@@ -30,7 +27,7 @@ except Exception:
     pass
 
 
-def f(t: float, s: float) -> Vec3:
+def f(t: float, s: float) -> np.ndarray:
     """Sample evolving target curve: a flattened helix in 3D.
 
     Args:
@@ -38,7 +35,6 @@ def f(t: float, s: float) -> Vec3:
         s: normalized arc parameter in [0, 1].
     """
     ss = max(0.0, min(1.0, float(s)))
-    body_len = jf.BODY_LENGTH_M
 
     # spatial wavenumber k applies to normalized s
     k = float(_F_PARAMS["k"])
@@ -48,12 +44,12 @@ def f(t: float, s: float) -> Vec3:
 
     phase = 2.0 * math.pi * (k * ss - freq * float(t))
 
-    x = body_len * ss
+    x = ss
     y = av * math.cos(phase)
     z = ah * math.sin(phase)
-    return x, y, z
+    return np.array([x, y, z], dtype=np.float64)
 
-# def f(t: float, s: float) -> Vec3:
+# def f(t: float, s: float) -> np.ndarray:
 #     ss = max(0.0, min(1.0, float(s)))
 #     _ensure_body_length()
 #     body_len = BODY_LENGTH_M if BODY_LENGTH_M is not None else _DEFAULT_BODY_LENGTH_M

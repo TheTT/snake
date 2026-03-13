@@ -37,7 +37,7 @@ def _rot_z(angle: float) -> np.ndarray:
     ], dtype=np.float64)
 
 
-class fk:
+class FK:
     def __init__(
         self, jn: int,
         *,
@@ -101,4 +101,4 @@ class fk:
         self.p[d] = self.p[d - 1] + (self.M[d] @ np.array([seg_len, 0.0, 0.0], dtype=np.float64))
 
 
-__all__ = ["fk"]
+__all__ = ["FK"]

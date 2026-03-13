@@ -7,15 +7,14 @@ from typing import Sequence
 
 import numpy as np
 
-Vec3 = tuple[float, float, float]
-CurveFn = Callable[[float, float], Vec3]
+CurveFn = Callable[[float, float], np.ndarray]
 TwistFn = Callable[[float, float], float]
 
 
 @dataclass
 class FitState:
     joint_tar: np.ndarray
-    last_align_plane_n: np.ndarray | None = None
+    last_UP: np.ndarray | None = None
 
 
 class Axis(IntEnum):
@@ -27,6 +26,7 @@ class Axis(IntEnum):
 @dataclass
 class FitParam:
     fplist: np.ndarray
+    hint_i: np.ndarray
     twist_no_base: np.ndarray
     joint_axes: Sequence[Axis]
     joint_signs: Sequence[float]

@@ -5,6 +5,7 @@ import numpy as np
 from typing import Callable
 
 from shapefit_types import FitParam
+from fwd_kine import FK
 
 
 def _point_segment_dist_sq(p, a, b):
@@ -47,13 +48,12 @@ def _dist_to_polyline(p, curve_pts, hint_i, radius):
 
 def _optimize_single_joint(
     seg_i: int,
-    fk_setval: Callable[[int, float], None],
-    fk_invalidate_from: Callable[[int], None],
+    initval: float,
+    *,
+    fk: FK,
+    dist_fn: Callable[[np.ndarray], float],
 ) -> float:
-    """Handle optimization for a single previous-joint (the joint influencing segment `seg_i`).
-
-    Returns the best delta applied to the joint (may be 0.0).
-    """
+    """Anneal v[seg_i] from initval to minimize distance from curve to p[seg_i + 1.5]."""
     ...
 
 

@@ -118,6 +118,7 @@ def _refresh_theoretical_state(t: float) -> None:
         joint_signs=JOINT_SIGNS,
         x_joint_indices_0b=X_JOINT_INDICES_0B,
         seglen=POLYLINE_SEGMENT_LENGTHS_M,
+        totlen=BODY_LENGTH_M,
         backend_fn=step_backend.step_backend,
     )
 
