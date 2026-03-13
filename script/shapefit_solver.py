@@ -9,21 +9,17 @@ import numpy as np
 from shapefit_types import TwistFn, CurveFn, BackendFn, FitState, FitParam
 
 
-def compute_twist_filtered(
-    *,
+def compute_twist(
     g_fn: TwistFn,
     t: float,
+    *,
     x_joint_indices_0b: Sequence[int],
-    lengths_m: Sequence[float],
-    base_twist_rad: float,
+    seglen: Sequence[float],
     state: FitState,
 ) -> np.ndarray:
-    """Compute per-x-joint twist, apply startup ramp and lowpass, update state.
-
-    Returns twist values with base_twist removed (for FK/geometry use).
+    """Compute per-x-joint twist. Returns twist values without base_twist (for FK/geometry use).
     """
     ...
-    # return twist_no_base
 
 
 def solve_shape_for_time(
@@ -36,16 +32,14 @@ def solve_shape_for_time(
     joint_axes: Sequence[Axis],
     joint_signs: Sequence[float],
     x_joint_indices_0b: Sequence[int],
-    lengths_m: Sequence[float],
-    base_twist_rad: float,
+    seglen: Sequence[float],
     backend_fn: BackendFn,
 ) -> None:
-    twist_no_base = compute_twist_filtered(
+    twist_no_base = compute_twist(
         g_fn=g_fn,
         t=t,
         x_joint_indices_0b=x_joint_indices_0b,
-        lengths_m=lengths_m,
-        base_twist_rad=base_twist_rad,
+        seglen=seglen,
         state=state,
     )
 

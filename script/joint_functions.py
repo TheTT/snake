@@ -31,6 +31,8 @@ POLYLINE_SEGMENT_LENGTHS_M = [
     0.113
 ]
 
+BODY_LENGTH_M = float(sum(float(x) for x in POLYLINE_SEGMENT_LENGTHS_M))
+
 JOINT_AXES = [
     Axis.Z, Axis.X, Axis.Y,
     Axis.Z, Axis.X, Axis.Y,
@@ -88,7 +90,9 @@ def _np_to_mat3(r: np.ndarray) -> Mat3:
 def assemble_joint(
     joint_tar: np.ndarray,
     n_joints: int,
+    *,
     x_joint_indices_0b: Sequence[int],
+    base_twist_rad: float,
 ) -> np.ndarray:
     """Assemble full joint angle array from state.
 
@@ -113,8 +117,7 @@ def _refresh_theoretical_state(t: float) -> None:
         joint_axes=JOINT_AXES,
         joint_signs=JOINT_SIGNS,
         x_joint_indices_0b=X_JOINT_INDICES_0B,
-        lengths_m=POLYLINE_SEGMENT_LENGTHS_M,
-        base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
+        seglen=POLYLINE_SEGMENT_LENGTHS_M,
         backend_fn=step_backend.step_backend,
     )
 
@@ -122,6 +125,7 @@ def _refresh_theoretical_state(t: float) -> None:
         joint_tar=_FIT_STATE.joint_tar,
         n_joints=N_JOINTS,
         x_joint_indices_0b=X_JOINT_INDICES_0B,
+        base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
     )
 
     for i in range(N_JOINTS):
