@@ -15,11 +15,13 @@ def compute_twist(
     *,
     x_joint_indices_0b: Sequence[int],
     seglen: Sequence[float],
-    state: FitState,
 ) -> np.ndarray:
     """Compute per-x-joint twist. Returns twist values without base_twist (for FK/geometry use).
     """
-    ...
+    # TODO inte twist
+
+    # tmp: [0]*len(x_joint_indices_0b)
+    return np.zeros(len(x_joint_indices_0b), dtype=np.float64)
 
 
 _SAMPLE_NUMBER = 200
@@ -171,7 +173,6 @@ def solve_shape_for_time(
         t=t,
         x_joint_indices_0b=x_joint_indices_0b,
         seglen=seglen,
-        state=state,
     )
 
     fplist = get_fsample(f_fn, t, _SAMPLE_NUMBER)
