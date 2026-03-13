@@ -22,7 +22,7 @@ This repository stores selected simulation assets and scripts using a whitelist 
 
 FK 回调（必须由调用方提供）
 - `fk_init(head_translation, head_rpy, joint_angles_base_x, yz_init, lengths_m, joint_axes)`：初始化内部 FK 缓存。
-- `fk_apply_delta(i, delta_rad)`：对第 i 个关节应用增量（局部更新，不立即重新计算全链）。
+- `fk_setval(i, delta_rad)`：对第 i 个关节应用增量（局部更新，不立即重新计算全链）。
 - `fk_get_midpoint(i)`：返回第 i 段的中点坐标（世界系）。
 - `fk_invalidate_from(i)` / `fk_ensure_upto(i)`：用于局部缓存失效与增量计算边界控制。
 
@@ -41,7 +41,7 @@ FK 回调（必须由调用方提供）
 		其中 $m_k$ 是通过 `fk_get_midpoint(k)` 得到的当前中点，$T_k$ 是 `aligned_tgt[k]`。
 	- 枚举候选增量 \(\pm \delta\)（`step = 2*finite_diff_eps` 的小步长），对每个候选：
 		* 将候选角度按关节符号 `joint_signs[j]` 转换为关节增量（并限制累计角度到 \([-\pi/2,\pi/2]\)）。
-		* 通过 `fk_apply_delta` 临时施加增量、重新计算段中点并求代价，随后撤销增量以恢复状态。若代价下降则记为当前最佳增量。
+		* 通过 `fk_setval` 临时施加增量、重新计算段中点并求代价，随后撤销增量以恢复状态。若代价下降则记为当前最佳增量。
 	- 将最佳增量应用到 FK，并更新累计已应用角度数组 `applied_deltas` 与局部 `yz_vars`（注意符号反向关系：`yz_vars[k] += actual_apply / sign`）。
 
 约束与数值策略：

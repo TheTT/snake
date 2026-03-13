@@ -11,9 +11,11 @@ import math
 from typing import Callable, Dict, List
 
 import numpy as np
+from shapefit_types import Axis
 
 from gait_function import f, g
-from shape_fit import FitConfig, create_initial_state, solve_shape_for_time
+from shape_fit import create_initial_state, solve_shape_for_time
+import step_backend
 
 N_JOINTS = 18
 
@@ -30,12 +32,12 @@ POLYLINE_SEGMENT_LENGTHS_M = [
 ]
 
 JOINT_AXES = [
-    "z", "x", "y",
-    "z", "x", "y",
-    "z", "x", "y",
-    "z", "x", "y",
-    "z", "x", "y",
-    "z", "x", "z",
+    Axis.Z, Axis.X, Axis.Y,
+    Axis.Z, Axis.X, Axis.Y,
+    Axis.Z, Axis.X, Axis.Y,
+    Axis.Z, Axis.X, Axis.Y,
+    Axis.Z, Axis.X, Axis.Y,
+    Axis.Z, Axis.X, Axis.Z,
 ]
 
 JOINT_SIGNS = [
@@ -65,31 +67,15 @@ if len(POLYLINE_SEGMENT_LENGTHS_M) != N_JOINTS + 1:
         f"{N_JOINTS + 1}, got {len(POLYLINE_SEGMENT_LENGTHS_M)}"
     )
 
-X_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a == "x"]
-YZ_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a in ("y", "z")]
+X_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a == Axis.X]
+YZ_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a in (Axis.Y, Axis.Z)]
 
-_FIT_CFG = FitConfig(
-    startup_ramp_sec=1.0,
-    max_iter=3,
-    damping=1e-2,
-    finite_diff_eps=1e-4,
-    integration_samples=5,
-    lowpass_tau_sec=0.05,
-)
 _FIT_STATE = create_initial_state(
     num_yz_joints=len(YZ_JOINT_INDICES_0B),
     num_x_joints=len(X_JOINT_INDICES_0B),
 )
 
 _LATEST_JOINT_ANGLES: List[float] = [0.0 for _ in range(N_JOINTS)]
-THEORETICAL_LOCAL_MATRICES: List[Mat3] = [
-    (
-        (1.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0),
-        (0.0, 0.0, 1.0),
-    )
-    for _ in range(N_JOINTS + 1)
-]
 _LAST_REFRESH_T: float | None = None
 
 
@@ -107,7 +93,7 @@ def _refresh_theoretical_state(t: float) -> None:
     if _LAST_REFRESH_T == t:
         return
 
-    joint_angles, _points, frames, _head = solve_shape_for_time(
+    joint_angles = solve_shape_for_time(
         f_fn=f,
         g_fn=g,
         t=float(t),
@@ -118,19 +104,11 @@ def _refresh_theoretical_state(t: float) -> None:
         lengths_m=POLYLINE_SEGMENT_LENGTHS_M,
         base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
         state=_FIT_STATE,
-        cfg=_FIT_CFG,
+        backend_fn=step_backend.step_backend,
     )
 
     for i in range(N_JOINTS):
         _LATEST_JOINT_ANGLES[i] = float(joint_angles[i])
-
-    THEORETICAL_LOCAL_MATRICES[0] = (
-        (1.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0),
-        (0.0, 0.0, 1.0),
-    )
-    for i in range(1, N_JOINTS + 1):
-        THEORETICAL_LOCAL_MATRICES[i] = _np_to_mat3(frames[i - 1])
 
     _LAST_REFRESH_T = float(t)
 
@@ -146,13 +124,3 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
 JOINT_FUNCTIONS: Dict[str, Callable[[float], float]] = {
     f"joint_{i + 1}_pos": _make_joint_function(i) for i in range(N_JOINTS)
 }
-
-
-def get_theoretical_local_matrices(_gait_fn: object = None, t: float | None = None) -> List[Mat3]:
-    """Return cached theoretical local coordinate matrices.
-
-    `_gait_fn` is ignored and kept only for backward compatibility.
-    """
-    if t is not None:
-        _refresh_theoretical_state(float(t))
-    return THEORETICAL_LOCAL_MATRICES
