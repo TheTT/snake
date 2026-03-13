@@ -101,6 +101,7 @@ class FK:
         # update position of point d (endpoint of previous segment)
         seg_len = self.l[d]
         self.p[d + 1] = self.p[d] + (self.M[d] @ np.array([-seg_len, 0.0, 0.0], dtype=np.float64))
+        self.d += 1
 
 
 __all__ = ["FK"]
