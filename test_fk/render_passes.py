@@ -8,8 +8,9 @@ import numpy as np
 
 from common import compose_lr, print_progress
 from control import clear_external_forces, fix_base_pose, set_controls
-from fwd_kine import FK
+from fwd_kine import FK, Axis
 from spec import JOINT_AXES, JOINT_SIGNS, N_JOINTS, SEGMENT_LENGTHS_M
+import math
 
 
 def append_fk_points_as_spheres(
@@ -103,9 +104,16 @@ def run_compare_render_loop(
             renderer_left.update_scene(data, camera=cam_left)
             frame_left = renderer_left.render()
 
+            # Apply base twist (90 deg) to X-axis joints to match upstream convention
+            base_twist = math.pi / 2.0
+            angles_with_twist = target_angles.copy()
+            for idx, ax in enumerate(JOINT_AXES):
+                if ax == Axis.X:
+                    angles_with_twist[idx] = float(angles_with_twist[idx] + base_twist)
+
             fk = FK(
                 jn=N_JOINTS,
-                init_angles=target_angles,
+                init_angles=angles_with_twist,
                 seg_len=SEGMENT_LENGTHS_M,
                 joint_axes=JOINT_AXES,
                 joint_signs=JOINT_SIGNS,
