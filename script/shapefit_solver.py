@@ -5,8 +5,9 @@ from typing import Callable, Sequence
 from shapefit_types import Axis
 
 import numpy as np
+from fwd_kine import FK
 
-from shapefit_types import TwistFn, CurveFn, BackendFn, FitState, FitParam
+from shapefit_types import TwistFn, CurveFn, BackendFn, FitState, FitParam, DebugInfo
 
 
 def compute_twist(
@@ -172,7 +173,7 @@ def solve_shape_for_time(
     totlen: float,
     backend_fn: BackendFn,
     base_twist_rad: float,
-) -> None:
+) -> DebugInfo:
     twist_no_base = compute_twist(
         g_fn=g_fn,
         t=t,
@@ -213,3 +214,18 @@ def solve_shape_for_time(
         backend_param,
     )
     state.joint_tar[:] = v[:]
+
+    fk = FK(
+        jn=n_joints,
+        init_angles=state.joint_tar,
+        seg_len=seglen,
+        joint_axes=joint_axes,
+        joint_signs=joint_signs,
+    )
+    fk_points = fk.getallp().copy()
+    expected_points = fplist[hint_i].copy()
+    return DebugInfo(
+        fk_points=fk_points,
+        expected_points=expected_points,
+        hint_i=hint_i.copy(),
+    )

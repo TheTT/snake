@@ -8,13 +8,15 @@ from typing import Callable, Dict, List, Sequence
 import imageio
 import mujoco
 import numpy as np
+from shapefit_types import DebugInfo
 
 from headless_camera import camera_direction_to_az_el, orthogonal_basis, principal_axis_and_com, set_model_fovy
 from headless_common import print_progress
 from headless_compose import compose_fsm_quad
-from headless_control import apply_time_only_controls, clear_external_forces
+from headless_control import apply_time_only_controls, clear_external_forces, pin_base_free_joint
 from headless_joint_utils import (
     append_joint_axis_markers,
+    append_point_markers,
     append_joint_polyline,
     append_twist_axis_markers,
     build_section_polyline_points,
@@ -286,6 +288,123 @@ def run_standard_render_loop(
                 renderer.update_scene(data, camera=cam)
                 frame = renderer.render()
 
+                writer.append_data(frame)
+                written_frames += 1
+                print_progress(written_frames, total_frames)
+
+
+def run_fk_render_loop(
+    *,
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    output_path: Path,
+    output_fps: int,
+    total_steps: int,
+    settle_steps: int,
+    render_every: int,
+    total_frames: int,
+    table: ControlTable,
+    plot_qpos_addrs: Sequence[int],
+    sample_times: List[float],
+    sample_angles: List[List[float]],
+    width: int,
+    height: int,
+    camera_distance: float,
+    scaled_fovy: float,
+    joint_ids_in_order: Sequence[int],
+    debug_info_fn: Callable[[float], DebugInfo | None],
+) -> None:
+    split_x_ratio = 0.5
+    split_y_ratio = 0.5
+
+    w_left = width // 2
+    w_right = width - w_left
+    h_top = height // 2
+    h_bottom = height - h_top
+
+    orbit_cam = mujoco.MjvCamera()
+    orbit_cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+    orbit_cam.fixedcamid = -1
+    orbit_cam.trackbodyid = -1
+    orbit_cam.distance = float(camera_distance)
+    orbit_cam.elevation = 0.0
+
+    with (
+        mujoco.Renderer(model, width=w_left, height=h_top) as renderer_mj,
+        mujoco.Renderer(model, width=w_right, height=h_top) as renderer_fk,
+        mujoco.Renderer(model, width=w_left, height=h_bottom) as renderer_target,
+        imageio.get_writer(str(output_path), fps=output_fps) as writer,
+    ):
+        for renderer in (renderer_mj, renderer_fk, renderer_target):
+            renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 1
+
+        written_frames = 0
+
+        for step in range(total_steps):
+            clear_external_forces(data)
+
+            if step >= settle_steps:
+                t = (step - settle_steps) * model.opt.timestep
+            else:
+                t = 0.0
+
+            apply_time_only_controls(model, data, table, t)
+            pin_base_free_joint(model, data)
+            mujoco.mj_step(model, data)
+            pin_base_free_joint(model, data)
+            mujoco.mj_forward(model, data)
+
+            if step >= settle_steps and (step - settle_steps) % render_every == 0:
+                _record_joint_samples(model, data, t, plot_qpos_addrs, sample_times, sample_angles)
+
+                center = np.zeros(3, dtype=np.float64)
+                if joint_ids_in_order:
+                    mid_jid = joint_ids_in_order[len(joint_ids_in_order) // 2]
+                    center = np.asarray(data.xanchor[mid_jid], dtype=np.float64)
+                orbit_cam.lookat[:] = center
+                orbit_cam.azimuth = 90.0 + 360.0 * (float(t) / 5.0)
+                orbit_cam.elevation = 0.0
+
+                set_model_fovy(model, scaled_fovy)
+                renderer_mj.update_scene(data, camera=orbit_cam)
+                frame_mj = renderer_mj.render()
+
+                debug_info = debug_info_fn(float(t))
+
+                renderer_fk.update_scene(data, camera=orbit_cam)
+                dim_scene_model_geoms(renderer_fk.scene, 0.0)
+                if debug_info is not None:
+                    append_point_markers(
+                        renderer_fk.scene,
+                        [row for row in np.asarray(debug_info.fk_points, dtype=np.float64)],
+                        radius=0.012,
+                        rgba=np.array([0.1, 0.8, 1.0, 1.0], dtype=np.float64),
+                    )
+                frame_fk = renderer_fk.render()
+
+                renderer_target.update_scene(data, camera=orbit_cam)
+                dim_scene_model_geoms(renderer_target.scene, 0.0)
+                if debug_info is not None:
+                    append_point_markers(
+                        renderer_target.scene,
+                        [row for row in np.asarray(debug_info.expected_points, dtype=np.float64)],
+                        radius=0.012,
+                        rgba=np.array([1.0, 0.55, 0.1, 1.0], dtype=np.float64),
+                    )
+                frame_target = renderer_target.render()
+
+                frame_blank = np.zeros((h_bottom, w_right, 3), dtype=frame_mj.dtype)
+
+                frame = compose_fsm_quad(
+                    frame_mj,
+                    frame_fk,
+                    frame_target,
+                    frame_blank,
+                    height,
+                    width,
+                    split_x_ratio,
+                    split_y_ratio,
+                )
                 writer.append_data(frame)
                 written_frames += 1
                 print_progress(written_frames, total_frames)

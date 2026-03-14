@@ -14,7 +14,7 @@ import numpy as np
 from shapefit_types import Axis
 
 from gait_function import f, g
-from shape_fit import create_initial_state, solve_shape_for_time
+from shape_fit import DebugInfo, create_initial_state, solve_shape_for_time
 import step_backend
 
 N_JOINTS = 18
@@ -77,6 +77,7 @@ _FIT_STATE = create_initial_state(
 
 _LATEST_JOINT_ANGLES: List[float] = [0.0 for _ in range(N_JOINTS)]
 _LAST_REFRESH_T: float | None = None
+_LAST_DEBUG_INFO: DebugInfo | None = None
 
 
 def _np_to_mat3(r: np.ndarray) -> Mat3:
@@ -105,12 +106,12 @@ def _np_to_mat3(r: np.ndarray) -> Mat3:
 
 
 def _refresh_theoretical_state(t: float) -> None:
-    global _LAST_REFRESH_T
+    global _LAST_REFRESH_T, _LAST_DEBUG_INFO
 
     if _LAST_REFRESH_T == t:
         return
 
-    solve_shape_for_time(
+    _LAST_DEBUG_INFO = solve_shape_for_time(
         _FIT_STATE,
         f_fn=f,
         g_fn=g,
@@ -135,6 +136,11 @@ def _refresh_theoretical_state(t: float) -> None:
         _LATEST_JOINT_ANGLES[i] = float(_FIT_STATE.joint_tar[i])
 
     _LAST_REFRESH_T = float(t)
+
+
+def get_debug_info(t: float) -> DebugInfo | None:
+    _refresh_theoretical_state(float(t))
+    return _LAST_DEBUG_INFO
 
 
 def _make_joint_function(joint_index: int) -> Callable[[float], float]:

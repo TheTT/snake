@@ -28,6 +28,7 @@ from headless_control import (
     apply_free_space_mode,
     build_actuator_function_table,
     clear_external_forces,
+    pin_base_free_joint,
 )
 from headless_joint_utils import (
     fsm_joint_ids_in_order,
@@ -35,9 +36,9 @@ from headless_joint_utils import (
     polyline_segment_lengths,
 )
 from headless_plot import plot_joint_angles_mod3
-from headless_render_passes import run_free_space_render_loop, run_standard_render_loop
+from headless_render_passes import run_fk_render_loop, run_free_space_render_loop, run_standard_render_loop
 from gait_function import f as midline_f
-from joint_functions import JOINT_FUNCTIONS, POLYLINE_SEGMENT_LENGTHS_M
+from joint_functions import JOINT_FUNCTIONS, POLYLINE_SEGMENT_LENGTHS_M, get_debug_info
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable free-space mode (no gravity/contact/external forces)",
     )
+    parser.add_argument(
+        "--fk",
+        action="store_true",
+        help="Enable FK debug mode (2x2: MuJoCo, FK nodes, target nodes, blank)",
+    )
     return parser.parse_args()
 
 
@@ -69,13 +75,18 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     data = mujoco.MjData(model)
     model.opt.timestep = float(cfg["sim_timestep"])
     free_space_mode = bool(args.fsm)
+    fk_mode = bool(args.fk)
+    if free_space_mode and fk_mode:
+        raise ValueError("--fsm and --fk cannot be enabled together")
     view_fov_scale = float(cfg["view_fov_scale"])
     base_fovy, scaled_fovy = apply_global_fov_scale(model, view_fov_scale)
-    apply_free_space_mode(model, free_space_mode)
+    apply_free_space_mode(model, free_space_mode or fk_mode)
 
     # Start from zero generalized velocity so initial linear/angular momentum is zero.
     data.qvel[:] = 0.0
     clear_external_forces(data)
+    if fk_mode:
+        pin_base_free_joint(model, data)
     mujoco.mj_forward(model, data)
 
     # --- Sync simulation qpos to commanded initial angles (t=0) to avoid jump ---
@@ -126,6 +137,7 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     print(f"Model loaded: {xml_path}")
     print(f"timestep={model.opt.timestep:.6f}s, nu={model.nu}, nbody={model.nbody}")
     print(f"free_space_mode={free_space_mode}")
+    print(f"fk_mode={fk_mode}")
     print(f"view_fov_scale={view_fov_scale}, fovy={base_fovy:.2f}->{scaled_fovy:.2f}")
     if free_space_mode:
         print(
@@ -262,6 +274,28 @@ def render_headless(cfg: Dict[str, Any]) -> None:
             f_curve_fn=midline_f,
             show_local_axes=fsm_show_local_axes,
             show_shell_overlay=fsm_show_shell_overlay,
+        )
+    elif fk_mode:
+        fk_joint_ids = fsm_joint_ids_in_order(model)
+        run_fk_render_loop(
+            model=model,
+            data=data,
+            output_path=output_path,
+            output_fps=output_fps,
+            total_steps=total_steps,
+            settle_steps=settle_steps,
+            render_every=render_every,
+            total_frames=total_frames,
+            table=table,
+            plot_qpos_addrs=plot_qpos_addrs,
+            sample_times=sample_times,
+            sample_angles=sample_angles,
+            width=width,
+            height=height,
+            camera_distance=float(cfg["camera_distance"]),
+            scaled_fovy=scaled_fovy,
+            joint_ids_in_order=fk_joint_ids,
+            debug_info_fn=get_debug_info,
         )
     else:
         run_standard_render_loop(

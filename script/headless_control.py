@@ -86,3 +86,27 @@ def apply_time_only_controls(
             u = float(np.clip(u, lo, hi))
 
         data.ctrl[i] = u
+
+
+def pin_base_free_joint(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    *,
+    joint_name: str = "base_free_joint",
+) -> None:
+    """Pin the base free joint at world origin, facing -x, with zero base velocity."""
+    joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+    if joint_id < 0:
+        return
+    if int(model.jnt_type[joint_id]) != int(mujoco.mjtJoint.mjJNT_FREE):
+        return
+
+    qpos_adr = int(model.jnt_qposadr[joint_id])
+    dof_adr = int(model.jnt_dofadr[joint_id])
+
+    if 0 <= qpos_adr <= model.nq - 7:
+        data.qpos[qpos_adr:qpos_adr + 3] = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+        data.qpos[qpos_adr + 3:qpos_adr + 7] = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+
+    if 0 <= dof_adr <= model.nv - 6:
+        data.qvel[dof_adr:dof_adr + 6] = 0.0

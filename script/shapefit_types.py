@@ -33,6 +33,15 @@ class FitParam:
     joint_signs: Sequence[float]
     seglen: Sequence[float]
     hint_rad: float
+
+
+@dataclass
+class DebugInfo:
+    fk_points: np.ndarray
+    expected_points: np.ndarray
+    hint_i: np.ndarray
+
+
 BackendFn = Callable[[np.ndarray, FitParam], np.ndarray]
 
 

@@ -12,11 +12,12 @@ The implementation is split into:
 from __future__ import annotations
 
 from shapefit_solver import solve_shape_for_time
-from shapefit_types import CurveFn, FitState, TwistFn, create_initial_state
+from shapefit_types import CurveFn, DebugInfo, FitState, TwistFn, create_initial_state
 
 __all__ = [
     "CurveFn",
     "TwistFn",
+    "DebugInfo",
     "FitState",
     "create_initial_state",
     "solve_shape_for_time",

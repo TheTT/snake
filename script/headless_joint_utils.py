@@ -84,6 +84,33 @@ def append_joint_polyline(
         scene.ngeom += 1
 
 
+def append_point_markers(
+    scene: mujoco.MjvScene,
+    points: Sequence[np.ndarray],
+    *,
+    radius: float = 0.01,
+    rgba: np.ndarray | None = None,
+) -> None:
+    """Append sphere markers for a list of 3D points."""
+    if rgba is None:
+        rgba = np.array([1.0, 0.3, 0.1, 1.0], dtype=np.float64)
+
+    for p in points:
+        if scene.ngeom >= scene.maxgeom:
+            break
+        pos = np.asarray(p, dtype=np.float64).reshape(3)
+        geom = scene.geoms[scene.ngeom]
+        mujoco.mjv_initGeom(
+            geom,
+            mujoco.mjtGeom.mjGEOM_SPHERE,
+            np.array([float(radius), float(radius), float(radius)], dtype=np.float64),
+            pos,
+            np.eye(3, dtype=np.float64).ravel(),
+            rgba,
+        )
+        scene.ngeom += 1
+
+
 def append_joint_axis_markers(
     scene: mujoco.MjvScene,
     model: mujoco.MjModel,
