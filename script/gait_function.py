@@ -50,17 +50,15 @@ except Exception:
 #     return np.array([x, y, z], dtype=np.float64)
 
 def f(t: float, s: float) -> np.ndarray:
-    ss = max(0.0, min(1.0, float(s)))
-
     ah = float(_F_PARAMS["ah"])  # z amplitude
     av = float(_F_PARAMS["av"])  # y amplitude
     freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
 
     phase = 2.0 * math.pi * freq * float(t)
 
-    x = ss
-    y = 0
-    z = av * s * s * math.cos(phase)
+    x = - s
+    y = av * s * s * math.cos(phase)
+    z = 0
     return x, y, z
 
 

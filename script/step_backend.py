@@ -4,7 +4,7 @@ import math
 import numpy as np
 from typing import Callable
 
-from shapefit_types import FitParam
+from shapefit_types import Axis, FitParam
 from fwd_kine import FK
 
 
@@ -66,8 +66,9 @@ def _optimize_single_joint(
 
     # TODO Anneal
 
-    # tmp: compare initval, initval + 0.01, initval - 0.01
+    # tmp: compare initval, initval + 0.001, initval - 0.001
     best_dist = dist(initval)
+    # olddist = best_dist
     best_val = initval
     for delta in [0.01, -0.01]:
         val = initval + delta
@@ -75,6 +76,8 @@ def _optimize_single_joint(
         if d < best_dist:
             best_dist = d
             best_val = val
+    # best_val = initval + 0.01
+    # print(olddist, "->", best_dist)
 
     return best_val
 
@@ -91,17 +94,48 @@ def step_backend(
         joint_signs=param.joint_signs,
     )
     v = v0.copy()
-    for i in range(param.jn):
-        v[i] = _optimize_single_joint(
-            seg_i=i,
-            initval=v[i],
-            fk=fk,
-            dist_fn=lambda p: _dist_to_polyline(
-                p=p,
-                curve_pts=param.fplist,
-                hint_i=(param.hint_i[i + 1] + param.hint_i[i + 2]) // 2,
-                radius=param.hint_rad,
-            ),
-        )
+
+    # n8 = fk.geti(8)
+    # print("\noldp[8]=(",n8[0],",",n8[1],",",n8[2],")")
+    # # n8h = param.fplist[param.hint_i[8]]
+    # # print("hint[8]=(",n8h[0],",",n8h[1],",",n8h[2],")")
+    # n8d = _dist_to_polyline(
+    #     p=n8,
+    #     curve_pts=param.fplist,
+    #     hint_i=param.hint_i[8],
+    #     radius=param.hint_rad,
+    # )
+    # print("oldd[8]=",n8d)
+
+    x_i = 0
+    for i, axis in enumerate(param.joint_axes):
+        if axis == Axis.X:
+            v[i] = param.twist_no_base[x_i]
+            x_i += 1
+        else:
+            v[i] = _optimize_single_joint(
+                seg_i=i,
+                initval=v[i],
+                fk=fk,
+                dist_fn=lambda p: _dist_to_polyline(
+                    p=p,
+                    curve_pts=param.fplist,
+                    hint_i=(param.hint_i[i + 1] + param.hint_i[i + 2]) // 2,
+                    radius=param.hint_rad,
+                ),
+            )
         fk.setval(i, v[i])
+
+    # n8 = fk.geti(8)
+    # print("newp[8]=(",n8[0],",",n8[1],",",n8[2],")")
+    # # n8h = param.fplist[param.hint_i[8]]
+    # # print("hint[8]=(",n8h[0],",",n8h[1],",",n8h[2],")")
+    # n8d = _dist_to_polyline(
+    #     p=n8,
+    #     curve_pts=param.fplist,
+    #     hint_i=param.hint_i[8],
+    #     radius=param.hint_rad,
+    # )
+    # print("newd[8]=",n8d)
+
     return v

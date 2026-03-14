@@ -25,7 +25,7 @@ def compute_twist(
 
 
 _SAMPLE_NUMBER = 200
-_HINT_RADIUS = 10
+_HINT_RADIUS = 50
 
 
 def get_fsample(
@@ -57,7 +57,7 @@ def get_ftrans(
     base = pts[0]
     x_axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)
     for j in range(1, pts.shape[0]):
-        dvec = pts[j] - base
+        dvec = base - pts[j]
         dist = float(np.linalg.norm(dvec))
         if dist > 1e-9:
             x_axis = dvec / dist
@@ -125,6 +125,9 @@ def get_ftrans(
 
     ftrans = float(scale) * np.column_stack([x_axis, y_axis, z_axis])
     new_UP = cur_UP
+    # print("x(",x_axis[0],",",x_axis[1],",",x_axis[2],")")
+    # print("y(",y_axis[0],",",y_axis[1],",",y_axis[2],")")
+    # print("z(",z_axis[0],",",z_axis[1],",",z_axis[2],")")
     return ftrans, new_UP
 
 
@@ -186,6 +189,12 @@ def solve_shape_for_time(
         seglen=seglen,
         state=state,
     )
+
+    print()
+    for k in (6, 12):
+        hi = int(hint_i[k])
+        print(k, hi, fplist[hi].tolist(), flush=True)
+
     backend_param = FitParam(
         jn=n_joints,
         fplist=fplist,
