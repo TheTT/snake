@@ -86,10 +86,6 @@ def step_backend(
     v0: np.ndarray,
     param: FitParam,
 ) -> np.ndarray:
-    twist = param.twist_no_base.copy()
-    for idx in range(len(twist)):
-        twist[idx] = float(twist[idx] + math.pi / 2.0)
-
     fk = FK(
         jn=param.jn,
         init_angles=v0,
@@ -115,7 +111,6 @@ def step_backend(
     for i, axis in enumerate(param.joint_axes):
         if axis == Axis.X:
             v[i] = param.twist_no_base[x_i]
-            fk.setval(i, twist[x_i])
             x_i += 1
         else:
             v[i] = _optimize_single_joint(
@@ -129,7 +124,7 @@ def step_backend(
                     radius=param.hint_rad,
                 ),
             )
-            fk.setval(i, v[i])
+        fk.setval(i, v[i])
 
     # n8 = fk.geti(8)
     # print("newp[8]=(",n8[0],",",n8[1],",",n8[2],")")
