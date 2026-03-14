@@ -4,7 +4,7 @@ import math
 import numpy as np
 from typing import Callable
 
-from shapefit_types import FitParam
+from shapefit_types import Axis, FitParam
 from fwd_kine import FK
 
 
@@ -66,15 +66,16 @@ def _optimize_single_joint(
 
     # TODO Anneal
 
-    # tmp: compare initval, initval + 0.01, initval - 0.01
-    best_dist = dist(initval)
-    best_val = initval
-    for delta in [0.01, -0.01]:
-        val = initval + delta
-        d = dist(val)
-        if d < best_dist:
-            best_dist = d
-            best_val = val
+    # tmp: compare initval, initval + 0.001, initval - 0.001
+    # best_dist = dist(initval)
+    # best_val = initval
+    # for delta in [0.001, -0.001]:
+    #     val = initval + delta
+    #     d = dist(val)
+    #     if d < best_dist:
+    #         best_dist = d
+    #         best_val = val
+    best_val = initval + 0.001
 
     return best_val
 
@@ -91,17 +92,22 @@ def step_backend(
         joint_signs=param.joint_signs,
     )
     v = v0.copy()
-    for i in range(param.jn):
-        v[i] = _optimize_single_joint(
-            seg_i=i,
-            initval=v[i],
-            fk=fk,
-            dist_fn=lambda p: _dist_to_polyline(
-                p=p,
-                curve_pts=param.fplist,
-                hint_i=(param.hint_i[i + 1] + param.hint_i[i + 2]) // 2,
-                radius=param.hint_rad,
-            ),
-        )
+    x_i = 0
+    for i, axis in enumerate(param.joint_axes):
+        if axis == Axis.X:
+            v[i] = param.twist_no_base[x_i]
+            x_i += 1
+        else:
+            v[i] = _optimize_single_joint(
+                seg_i=i,
+                initval=v[i],
+                fk=fk,
+                dist_fn=lambda p: _dist_to_polyline(
+                    p=p,
+                    curve_pts=param.fplist,
+                    hint_i=(param.hint_i[i + 1] + param.hint_i[i + 2]) // 2,
+                    radius=param.hint_rad,
+                ),
+            )
         fk.setval(i, v[i])
     return v
