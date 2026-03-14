@@ -67,15 +67,17 @@ def _optimize_single_joint(
     # TODO Anneal
 
     # tmp: compare initval, initval + 0.001, initval - 0.001
-    # best_dist = dist(initval)
-    # best_val = initval
-    # for delta in [0.001, -0.001]:
-    #     val = initval + delta
-    #     d = dist(val)
-    #     if d < best_dist:
-    #         best_dist = d
-    #         best_val = val
-    best_val = initval + 0.001
+    best_dist = dist(initval)
+    # olddist = best_dist
+    best_val = initval
+    for delta in [0.01, -0.01]:
+        val = initval + delta
+        d = dist(val)
+        if d < best_dist:
+            best_dist = d
+            best_val = val
+    # best_val = initval + 0.01
+    # print(olddist, "->", best_dist)
 
     return best_val
 
@@ -92,6 +94,19 @@ def step_backend(
         joint_signs=param.joint_signs,
     )
     v = v0.copy()
+
+    # n8 = fk.geti(8)
+    # print("\noldp[8]=(",n8[0],",",n8[1],",",n8[2],")")
+    # # n8h = param.fplist[param.hint_i[8]]
+    # # print("hint[8]=(",n8h[0],",",n8h[1],",",n8h[2],")")
+    # n8d = _dist_to_polyline(
+    #     p=n8,
+    #     curve_pts=param.fplist,
+    #     hint_i=param.hint_i[8],
+    #     radius=param.hint_rad,
+    # )
+    # print("oldd[8]=",n8d)
+
     x_i = 0
     for i, axis in enumerate(param.joint_axes):
         if axis == Axis.X:
@@ -110,4 +125,17 @@ def step_backend(
                 ),
             )
         fk.setval(i, v[i])
+
+    # n8 = fk.geti(8)
+    # print("newp[8]=(",n8[0],",",n8[1],",",n8[2],")")
+    # # n8h = param.fplist[param.hint_i[8]]
+    # # print("hint[8]=(",n8h[0],",",n8h[1],",",n8h[2],")")
+    # n8d = _dist_to_polyline(
+    #     p=n8,
+    #     curve_pts=param.fplist,
+    #     hint_i=param.hint_i[8],
+    #     radius=param.hint_rad,
+    # )
+    # print("newd[8]=",n8d)
+
     return v
