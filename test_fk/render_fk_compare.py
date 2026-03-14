@@ -20,6 +20,9 @@ from control import (
 )
 from render_passes import run_compare_render_loop
 from spec import N_JOINTS
+from spec import JOINT_AXES
+from fwd_kine import Axis
+import math
 
 
 def _target_angles_array(cfg: Dict[str, Any]) -> np.ndarray:
@@ -84,7 +87,11 @@ def render_compare(cfg: Dict[str, Any], cfg_path: Path) -> None:
         for i in range(N_JOINTS):
             aid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"joint_{i + 1}_pos")
             if aid >= 0:
-                actuator_target[int(aid)] = float(cmd[i])
+                # apply base twist to X-axis joints so controllers receive same base offset
+                angle = float(cmd[i])
+                if JOINT_AXES[i] == Axis.X:
+                    angle += math.pi / 2.0
+                actuator_target[int(aid)] = angle
 
         set_controls(model, data, actuator_target)
         clear_external_forces(data)
