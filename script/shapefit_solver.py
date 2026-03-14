@@ -124,7 +124,7 @@ def get_ftrans(
         z_axis = cur_UP
         y_axis = np.cross(z_axis, x_axis)
 
-    ftrans = float(scale) * np.column_stack([x_axis, y_axis, z_axis])
+    ftrans = float(scale) * np.row_stack([x_axis, y_axis, z_axis])
     new_UP = cur_UP
     # print("x(",x_axis[0],",",x_axis[1],",",x_axis[2],")")
     # print("y(",y_axis[0],",",y_axis[1],",",y_axis[2],")")
