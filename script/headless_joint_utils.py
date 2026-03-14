@@ -111,6 +111,51 @@ def append_point_markers(
         scene.ngeom += 1
 
 
+def append_pair_connectors(
+    scene: mujoco.MjvScene,
+    points_a: Sequence[np.ndarray],
+    points_b: Sequence[np.ndarray],
+    *,
+    radius: float = 0.006,
+    colors: Sequence[np.ndarray] | None = None,
+) -> None:
+    """Append capsule connectors between corresponding points in two point sets."""
+    if colors is None or len(colors) == 0:
+        colors = [
+            np.array([0.1, 0.3, 1.0, 1.0], dtype=np.float64),
+            np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+            np.array([1.0, 0.9, 0.1, 1.0], dtype=np.float64),
+        ]
+
+    count = min(len(points_a), len(points_b))
+    for i in range(count):
+        if scene.ngeom >= scene.maxgeom:
+            break
+
+        p0 = np.asarray(points_a[i], dtype=np.float64).reshape(3)
+        p1 = np.asarray(points_b[i], dtype=np.float64).reshape(3)
+        if float(np.linalg.norm(p1 - p0)) < 1e-9:
+            continue
+
+        geom = scene.geoms[scene.ngeom]
+        mujoco.mjv_initGeom(
+            geom,
+            mujoco.mjtGeom.mjGEOM_CAPSULE,
+            np.zeros(3, dtype=np.float64),
+            np.zeros(3, dtype=np.float64),
+            np.eye(3, dtype=np.float64).ravel(),
+            colors[i % len(colors)],
+        )
+        mujoco.mjv_connector(
+            geom,
+            mujoco.mjtGeom.mjGEOM_CAPSULE,
+            float(radius),
+            p0,
+            p1,
+        )
+        scene.ngeom += 1
+
+
 def append_joint_axis_markers(
     scene: mujoco.MjvScene,
     model: mujoco.MjModel,

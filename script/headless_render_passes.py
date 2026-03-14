@@ -15,6 +15,7 @@ from headless_common import print_progress
 from headless_compose import compose_fsm_quad
 from headless_control import apply_time_only_controls, clear_external_forces, pin_base_free_joint
 from headless_joint_utils import (
+    append_pair_connectors,
     append_joint_axis_markers,
     append_point_markers,
     append_joint_polyline,
@@ -397,17 +398,16 @@ def run_fk_render_loop(
                 renderer_overlay.update_scene(data, camera=orbit_cam)
                 dim_scene_model_geoms(renderer_overlay.scene, 0.0)
                 if debug_info is not None:
-                    append_point_markers(
-                        renderer_overlay.scene,
-                        [row for row in np.asarray(debug_info.fk_points, dtype=np.float64)],
-                        radius=0.012,
-                        rgba=np.array([0.1, 0.8, 1.0, 0.7], dtype=np.float64),
-                    )
-                    append_point_markers(
+                    append_pair_connectors(
                         renderer_overlay.scene,
                         [row for row in np.asarray(debug_info.expected_points, dtype=np.float64)],
-                        radius=0.012,
-                        rgba=np.array([1.0, 0.55, 0.1, 0.7], dtype=np.float64),
+                        [row for row in np.asarray(debug_info.fk_points, dtype=np.float64)],
+                        radius=0.006,
+                        colors=[
+                            np.array([0.1, 0.3, 1.0, 1.0], dtype=np.float64),
+                            np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+                            np.array([1.0, 0.9, 0.1, 1.0], dtype=np.float64),
+                        ],
                     )
                 frame_overlay = renderer_overlay.render()
 
