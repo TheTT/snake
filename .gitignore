@@ -22,3 +22,7 @@ meshes/*
 !script/
 script/*
 !script/*.py
+!test_fk/
+test_fk/*
+!test_fk/*.json
+!test_fk/*.py
