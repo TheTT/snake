@@ -115,7 +115,7 @@ def step_backend(
     for i, axis in enumerate(param.joint_axes):
         if axis == Axis.X:
             v[i] = param.twist_no_base[x_i]
-            fk.setval(i, twist[i])
+            fk.setval(i, twist[x_i])
             x_i += 1
         else:
             v[i] = _optimize_single_joint(
