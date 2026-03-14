@@ -333,9 +333,10 @@ def run_fk_render_loop(
         mujoco.Renderer(model, width=w_left, height=h_top) as renderer_mj,
         mujoco.Renderer(model, width=w_right, height=h_top) as renderer_fk,
         mujoco.Renderer(model, width=w_left, height=h_bottom) as renderer_target,
+        mujoco.Renderer(model, width=w_right, height=h_bottom) as renderer_overlay,
         imageio.get_writer(str(output_path), fps=output_fps) as writer,
     ):
-        for renderer in (renderer_mj, renderer_fk, renderer_target):
+        for renderer in (renderer_mj, renderer_fk, renderer_target, renderer_overlay):
             renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 1
 
         written_frames = 0
@@ -362,7 +363,7 @@ def run_fk_render_loop(
                     mid_jid = joint_ids_in_order[len(joint_ids_in_order) // 2]
                     center = np.asarray(data.xanchor[mid_jid], dtype=np.float64)
                 orbit_cam.lookat[:] = center
-                orbit_cam.azimuth = 90.0 + 360.0 * (float(t) / 5.0)
+                orbit_cam.azimuth = 90.0 - 360.0 * (float(t) / 10.0)
                 orbit_cam.elevation = 0.0
 
                 set_model_fovy(model, scaled_fovy)
@@ -393,13 +394,28 @@ def run_fk_render_loop(
                     )
                 frame_target = renderer_target.render()
 
-                frame_blank = np.zeros((h_bottom, w_right, 3), dtype=frame_mj.dtype)
+                renderer_overlay.update_scene(data, camera=orbit_cam)
+                dim_scene_model_geoms(renderer_overlay.scene, 0.0)
+                if debug_info is not None:
+                    append_point_markers(
+                        renderer_overlay.scene,
+                        [row for row in np.asarray(debug_info.fk_points, dtype=np.float64)],
+                        radius=0.012,
+                        rgba=np.array([0.1, 0.8, 1.0, 0.7], dtype=np.float64),
+                    )
+                    append_point_markers(
+                        renderer_overlay.scene,
+                        [row for row in np.asarray(debug_info.expected_points, dtype=np.float64)],
+                        radius=0.012,
+                        rgba=np.array([1.0, 0.55, 0.1, 0.7], dtype=np.float64),
+                    )
+                frame_overlay = renderer_overlay.render()
 
                 frame = compose_fsm_quad(
                     frame_mj,
                     frame_fk,
                     frame_target,
-                    frame_blank,
+                    frame_overlay,
                     height,
                     width,
                     split_x_ratio,

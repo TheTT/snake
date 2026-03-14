@@ -3,7 +3,6 @@
 The implementation is split into:
 - shapefit_types.py: dataclasses and public type aliases
 - shapefit_geometry.py: FK and geometric helpers
-- shapefit_target.py: target-curve and twist integration helpers
 - shapefit_solver.py: shape solver entrypoint
 - jacob_backend.py: least-squares backend and Jacobian implementations (finite differences)
 - anneal_backend.py: annealing backend placeholder with same interface
