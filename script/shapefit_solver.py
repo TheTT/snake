@@ -171,6 +171,7 @@ def solve_shape_for_time(
     seglen: Sequence[float],
     totlen: float,
     backend_fn: BackendFn,
+    base_twist_rad: float,
 ) -> None:
     twist_no_base = compute_twist(
         g_fn=g_fn,
@@ -178,6 +179,7 @@ def solve_shape_for_time(
         x_joint_indices_0b=x_joint_indices_0b,
         seglen=seglen,
     )
+    twist = twist_no_base.copy() + np.array([base_twist_rad] * len(x_joint_indices_0b), dtype=np.float64)
 
     fplist = get_fsample(f_fn, t, _SAMPLE_NUMBER)
     # ftrans is a 3*3 transform
@@ -200,7 +202,7 @@ def solve_shape_for_time(
         jn=n_joints,
         fplist=fplist,
         hint_i=hint_i,
-        twist_no_base=twist_no_base,
+        twist=twist,
         joint_axes=joint_axes,
         joint_signs=joint_signs,
         seglen=seglen,

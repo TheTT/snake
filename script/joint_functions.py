@@ -87,22 +87,21 @@ def _np_to_mat3(r: np.ndarray) -> Mat3:
     )
 
 
-def assemble_joint(
-    joint_tar: np.ndarray,
-    n_joints: int,
-    *,
-    x_joint_indices_0b: Sequence[int],
-    base_twist_rad: float,
-) -> np.ndarray:
-    """Assemble full joint angle array from state.
+# def assemble_joint(
+#     joint_tar: np.ndarray,
+#     *,
+#     x_joint_indices_0b: Sequence[int],
+#     base_twist_rad: float,
+# ) -> np.ndarray:
+#     """Assemble full joint angle array from state.
 
-    joint_angles[i] = joint_tar + base_twist for x joints.
-    """
-    joint_angles = joint_tar.copy()
-    for i in x_joint_indices_0b:
-        joint_angles[i] += base_twist_rad
+#     joint_angles[i] = joint_tar + base_twist for x joints.
+#     """
+#     joint_angles = joint_tar.copy()
+#     for i in x_joint_indices_0b:
+#         joint_angles[i] += base_twist_rad
 
-    return joint_angles
+#     return joint_angles
 
 
 def _refresh_theoretical_state(t: float) -> None:
@@ -123,17 +122,17 @@ def _refresh_theoretical_state(t: float) -> None:
         seglen=POLYLINE_SEGMENT_LENGTHS_M,
         totlen=BODY_LENGTH_M,
         backend_fn=step_backend.step_backend,
-    )
-
-    joint_angles = assemble_joint(
-        joint_tar=_FIT_STATE.joint_tar,
-        n_joints=N_JOINTS,
-        x_joint_indices_0b=X_JOINT_INDICES_0B,
         base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
     )
 
+    # joint_angles = assemble_joint(
+    #     joint_tar=_FIT_STATE.joint_tar,
+    #     x_joint_indices_0b=X_JOINT_INDICES_0B,
+    #     base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
+    # )
+
     for i in range(N_JOINTS):
-        _LATEST_JOINT_ANGLES[i] = float(joint_angles[i])
+        _LATEST_JOINT_ANGLES[i] = float(_FIT_STATE.joint_tar[i])
 
     _LAST_REFRESH_T = float(t)
 
