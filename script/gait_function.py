@@ -58,6 +58,8 @@ def f(t: float, s: float) -> np.ndarray:
 
     x = - s
     y = av * s * s * math.cos(phase)
+    if t < 5.0:
+        y *= 1.0 - t / 5.0
     z = 0
     return np.array([x, y, z], dtype=np.float64)
 
