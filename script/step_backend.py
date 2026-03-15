@@ -32,8 +32,11 @@ def _dist_to_polyline(
         d = p - curve_pts[0] if n == 1 else p
         return float(np.dot(d, d))
 
-    start = max(0, hint_i - int(radius))
-    end = min(n - 2, hint_i + int(radius))
+    # DEBUG
+    # start = max(0, hint_i - int(radius))
+    # end = min(n - 2, hint_i + int(radius))
+    start = 0
+    end = n - 2
 
     best = 1e30
 
