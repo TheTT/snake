@@ -328,7 +328,7 @@ def run_fk_render_loop(
     orbit_cam.fixedcamid = -1
     orbit_cam.trackbodyid = -1
     orbit_cam.distance = float(camera_distance)
-    orbit_cam.elevation = 0.0
+    orbit_cam.elevation = -45.0
 
     with (
         mujoco.Renderer(model, width=w_left, height=h_top) as renderer_mj,
@@ -364,8 +364,8 @@ def run_fk_render_loop(
                     mid_jid = joint_ids_in_order[len(joint_ids_in_order) // 2]
                     center = np.asarray(data.xanchor[mid_jid], dtype=np.float64)
                 orbit_cam.lookat[:] = center
-                orbit_cam.azimuth = 90.0 - 360.0 * (float(t) / 10.0)
-                orbit_cam.elevation = 0.0
+                orbit_cam.azimuth = 90.0 - 360.0 * (float(t) / 30.0)
+                orbit_cam.elevation = -45.0
 
                 set_model_fovy(model, scaled_fovy)
                 renderer_mj.update_scene(data, camera=orbit_cam)
