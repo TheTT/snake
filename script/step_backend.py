@@ -140,4 +140,20 @@ def step_backend(
     # )
     # print("newd[8]=",n8d)
 
-    return v, fk
+    # compute closest fplist index for each FK node
+    allp = fk.getallp()
+    n_nodes = allp.shape[0]
+    nearest_idx = np.zeros(n_nodes, dtype=np.int32)
+    # brute-force nearest; fplist size is small (~200)
+    for ni in range(n_nodes):
+        p = allp[ni]
+        diffs = param.fplist - p[None, :]
+        d2 = np.sum(diffs * diffs, axis=1)
+        nearest_idx[ni] = int(np.argmin(d2))
+
+    # pack fk and nearest indices into a single Any (dict) for backward compatibility
+    meta = {
+        "fk": fk,
+        "nearest_idx": nearest_idx,
+    }
+    return v, meta

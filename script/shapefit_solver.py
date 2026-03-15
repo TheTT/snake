@@ -214,13 +214,30 @@ def solve_shape_for_time(
         backend_param,
     )
 
-    # backend_fn may return either just angles (np.ndarray) or
-    # a tuple (angles, fk_obj). Support both for backward compatibility.
-    if isinstance(backend_ret, tuple) and len(backend_ret) == 2 and isinstance(backend_ret[0], np.ndarray):
-        v, fk = backend_ret
+    # backend_fn may return:
+    # - just angles (np.ndarray)
+    # - (angles, fk_obj)
+    # - (angles, meta) where meta is Any packing fk and nearest_idx (dict or tuple)
+    if isinstance(backend_ret, tuple) and len(backend_ret) >= 2 and isinstance(backend_ret[0], np.ndarray):
+        v = backend_ret[0]
+        meta = backend_ret[1]
+        fk = None
+        node_hint_idx = None
+        if isinstance(meta, dict):
+            fk = meta.get("fk", None)
+            node_hint_idx = meta.get("nearest_idx", None)
+        elif isinstance(meta, (tuple, list)):
+            if len(meta) >= 1:
+                fk = meta[0]
+            if len(meta) >= 2:
+                node_hint_idx = meta[1]
+        else:
+            # backward compat: meta may itself be an FK object
+            fk = meta
     else:
         v = backend_ret
         fk = None
+        node_hint_idx = None
 
     state.joint_tar[:] = v[:]
 
@@ -233,9 +250,15 @@ def solve_shape_for_time(
             joint_signs=joint_signs,
         )
     fk_points = fk.getallp().copy()
-    expected_points = fplist[hint_i].copy()
+    # prefer node_hint_idx returned from backend if available
+    if node_hint_idx is not None:
+        hint_for_debug = np.asarray(node_hint_idx, dtype=np.int32)
+    else:
+        hint_for_debug = hint_i.copy()
+
+    expected_points = fplist[hint_for_debug].copy()
     return DebugInfo(
         fk_points=fk_points,
         expected_points=expected_points,
-        hint_i=hint_i.copy(),
+        hint_i=hint_for_debug,
     )
