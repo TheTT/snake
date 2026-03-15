@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Any, Union, Sequence
 from enum import IntEnum
-from typing import Sequence
 
 import numpy as np
 
@@ -42,7 +41,7 @@ class DebugInfo:
     hint_i: np.ndarray
 
 
-BackendFn = Callable[[np.ndarray, FitParam], np.ndarray]
+BackendFn = Callable[[np.ndarray, FitParam], Union[np.ndarray, tuple[np.ndarray, Any]]]
 
 
 def create_initial_state(num_joints: int) -> FitState:

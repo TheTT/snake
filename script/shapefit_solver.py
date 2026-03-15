@@ -209,19 +209,29 @@ def solve_shape_for_time(
         seglen=seglen,
         hint_rad=_HINT_RADIUS,
     )
-    v = backend_fn(
+    backend_ret = backend_fn(
         state.joint_tar,
         backend_param,
     )
+
+    # backend_fn may return either just angles (np.ndarray) or
+    # a tuple (angles, fk_obj). Support both for backward compatibility.
+    if isinstance(backend_ret, tuple) and len(backend_ret) == 2 and isinstance(backend_ret[0], np.ndarray):
+        v, fk = backend_ret
+    else:
+        v = backend_ret
+        fk = None
+
     state.joint_tar[:] = v[:]
 
-    fk = FK(
-        jn=n_joints,
-        init_angles=state.joint_tar,
-        seg_len=seglen,
-        joint_axes=joint_axes,
-        joint_signs=joint_signs,
-    )
+    if fk is None:
+        fk = FK(
+            jn=n_joints,
+            init_angles=state.joint_tar,
+            seg_len=seglen,
+            joint_axes=joint_axes,
+            joint_signs=joint_signs,
+        )
     fk_points = fk.getallp().copy()
     expected_points = fplist[hint_i].copy()
     return DebugInfo(

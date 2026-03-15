@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import numpy as np
-from typing import Callable
+from typing import Callable, Any
 
 from shapefit_types import Axis, FitParam
 from fwd_kine import FK
@@ -71,6 +71,8 @@ def _optimize_single_joint(
     # olddist = best_dist
     best_val = initval
     for delta in [0.01, -0.01]:
+        if delta < - math.pi/2 or delta > math.pi/2:
+            continue
         val = initval + delta
         d = dist(val)
         if d < best_dist:
@@ -85,7 +87,7 @@ def _optimize_single_joint(
 def step_backend(
     v0: np.ndarray,
     param: FitParam,
-) -> np.ndarray:
+) -> tuple[np.ndarray, Any]:
     fk = FK(
         jn=param.jn,
         init_angles=v0,
@@ -138,4 +140,4 @@ def step_backend(
     # )
     # print("newd[8]=",n8d)
 
-    return v
+    return v, fk
