@@ -85,7 +85,7 @@ def _optimize_joints(
     n_iters: int = 400,
     temp0: float = 0.1,
     step_size: float = 0.05,
-) -> tuple[np.ndarray, dict]:
+) -> np.ndarray:
     assert len(seg_is) == len(initvals)
 
     k = len(seg_is)
@@ -139,8 +139,7 @@ def _optimize_joints(
     for si, val in zip(seg_is, best):
         fk.setval(si, float(val))
 
-    meta = {"fk": fk, "best_obj": best_obj}
-    return best, meta
+    return best
 
 
 def anneal_backend(

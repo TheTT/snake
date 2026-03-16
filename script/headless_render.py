@@ -13,8 +13,16 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # Must be set before importing mujoco so the GL backend is selected correctly.
-os.environ.setdefault("MUJOCO_GL", "egl")
-os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+# In headless (no DISPLAY), force non-GLFW backend to avoid X11 dependency.
+_display = os.environ.get("DISPLAY", "").strip()
+_mujoco_gl = os.environ.get("MUJOCO_GL", "").strip().lower()
+if not _display and _mujoco_gl in ("", "glfw"):
+    # Prefer EGL; users can still override explicitly before process start.
+    os.environ["MUJOCO_GL"] = "egl"
+    os.environ["PYOPENGL_PLATFORM"] = "egl"
+else:
+    os.environ.setdefault("MUJOCO_GL", "egl")
+    os.environ.setdefault("PYOPENGL_PLATFORM", os.environ.get("MUJOCO_GL", "egl"))
 
 import mujoco
 import numpy as np
@@ -140,6 +148,11 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     print(f"timestep={model.opt.timestep:.6f}s, nu={model.nu}, nbody={model.nbody}")
     print(f"free_space_mode={free_space_mode}")
     print(f"fk_mode={fk_mode}")
+    print(
+        "gl_backend="
+        f"{os.environ.get('MUJOCO_GL', '<unset>')}, "
+        f"DISPLAY={os.environ.get('DISPLAY', '<unset>')}"
+    )
     print(f"view_fov_scale={view_fov_scale}, fovy={base_fovy:.2f}->{scaled_fovy:.2f}")
     if free_space_mode:
         print(
