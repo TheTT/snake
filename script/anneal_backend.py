@@ -52,39 +52,95 @@ def _dist_to_polyline(
     return best
 
 
-# Const parameters for anneal
-
-
-def _optimize_single_joint(
-    seg_i: int,
-    initval: float,
+def dist_fn_constructor(
+    node_indices: list[int],
     *,
     fk: FK,
-    dist_fn: Callable[[np.ndarray], float],
-) -> float:
-    """Anneal v[seg_i] from initval to minimize distance from curve to p[seg_i + 2]."""
-    def dist(val: float) -> float:
-        fk.setval(seg_i, val)
-        return dist_fn(fk.geti(seg_i + 2))
+    curve_pts: np.ndarray,
+    hint_is: np.ndarray,
+    radius: float,
+) -> Callable[[], float]:
+    def obj() -> float:
+        s = 0.0
+        for node in node_indices:
+            p = fk.geti(int(node))
+            d = _dist_to_polyline(
+                p=p,
+                curve_pts=curve_pts,
+                hint_i=hint_is[node],
+                radius=radius,
+            )
+            s += d * d
+        return s
 
-    # TODO Anneal
+    return obj
 
-    # tmp: compare initval, initval + 0.001, initval - 0.001
-    best_dist = dist(initval)
-    # olddist = best_dist
-    best_val = initval
-    for delta in [0.01, -0.01]:
-        if delta < - math.pi/2 or delta > math.pi/2:
-            continue
-        val = initval + delta
-        d = dist(val)
-        if d < best_dist:
-            best_dist = d
-            best_val = val
-    # best_val = initval + 0.01
-    # print(olddist, "->", best_dist)
 
-    return best_val
+def _optimize_joints(
+    seg_is: list[int],
+    initvals: list[float],
+    *,
+    fk: FK,
+    obj_fn: Callable[[], float],
+    n_iters: int = 400,
+    temp0: float = 0.1,
+    step_size: float = 0.05,
+) -> tuple[np.ndarray, dict]:
+    assert len(seg_is) == len(initvals)
+
+    k = len(seg_is)
+    cur = np.array(initvals, dtype=float)
+    best = cur.copy()
+
+    # initialize FK to current values
+    for si, val in zip(seg_is, cur):
+        fk.setval(si, float(val))
+
+    cur_obj = float(obj_fn())
+    best_obj = cur_obj
+
+    rng = np.random.default_rng()
+
+    for it in range(n_iters):
+        T = temp0 * (1.0 - it / max(1, n_iters))
+
+        # propose a candidate by perturbing each joint (one-at-a-time)
+        for idx in range(k):
+            si = seg_is[idx]
+            old_val = cur[idx]
+            # gaussian proposal
+            cand = old_val + rng.normal(0.0, step_size)
+
+            fk.setval(si, float(cand))
+            cand_obj = float(obj_fn())
+
+            delta = cand_obj - cur_obj
+            accept = False
+            if delta <= 0.0:
+                accept = True
+            else:
+                # Metropolis acceptance
+                if T > 0.0:
+                    prob = math.exp(-delta / T)
+                    if rng.random() < prob:
+                        accept = True
+
+            if accept:
+                cur[idx] = cand
+                cur_obj = cand_obj
+                if cur_obj < best_obj:
+                    best_obj = cur_obj
+                    best = cur.copy()
+            else:
+                # revert FK to old value
+                fk.setval(si, float(old_val))
+
+    # ensure FK left at best values
+    for si, val in zip(seg_is, best):
+        fk.setval(si, float(val))
+
+    meta = {"fk": fk, "best_obj": best_obj}
+    return best, meta
 
 
 def anneal_backend(
@@ -118,17 +174,20 @@ def anneal_backend(
             v[i] = param.twist[x_i]
             x_i += 1
         else:
-            v[i] = _optimize_single_joint(
-                seg_i=i,
-                initval=v[i],
+            obj = dist_fn_constructor(
+                [i + 2],
                 fk=fk,
-                dist_fn=lambda p: _dist_to_polyline(
-                    p=p,
-                    curve_pts=param.fplist,
-                    hint_i=param.hint_i[i + 2],
-                    radius=param.hint_rad,
-                ),
+                curve_pts=param.fplist,
+                hint_is=param.hint_i,
+                radius=param.hint_rad,
             )
+            best_arr = _optimize_joints(
+                seg_is=[i],
+                initvals=[v[i]],
+                fk=fk,
+                obj_fn=obj,
+            )
+            v[i] = float(best_arr[0])
         fk.setval(i, v[i])
 
     # n8 = fk.geti(8)
