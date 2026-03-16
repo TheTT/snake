@@ -13,16 +13,18 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # Must be set before importing mujoco so the GL backend is selected correctly.
-# In headless (no DISPLAY), force non-GLFW backend to avoid X11 dependency.
-_display = os.environ.get("DISPLAY", "").strip()
-_mujoco_gl = os.environ.get("MUJOCO_GL", "").strip().lower()
-if not _display and _mujoco_gl in ("", "glfw"):
-    # Prefer EGL; users can still override explicitly before process start.
-    os.environ["MUJOCO_GL"] = "egl"
-    os.environ["PYOPENGL_PLATFORM"] = "egl"
-else:
-    os.environ.setdefault("MUJOCO_GL", "egl")
-    os.environ.setdefault("PYOPENGL_PLATFORM", os.environ.get("MUJOCO_GL", "egl"))
+# This script is headless-oriented: never use GLFW by default.
+# - if MUJOCO_GL is empty or glfw -> force egl
+# - if user explicitly sets osmesa/egl -> respect it
+# _mujoco_gl = os.environ.get("MUJOCO_GL", "").strip().lower()
+# if _mujoco_gl in ("", "glfw"):
+#     os.environ["MUJOCO_GL"] = "egl"
+
+# _selected_gl = os.environ.get("MUJOCO_GL", "egl").strip().lower() or "egl"
+# if _selected_gl in ("egl", "osmesa"):
+#     os.environ["PYOPENGL_PLATFORM"] = _selected_gl
+# else:
+#     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
 import mujoco
 import numpy as np
