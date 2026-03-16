@@ -12,6 +12,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+# Must be set before importing mujoco so the GL backend is selected correctly.
+os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+
 import mujoco
 import numpy as np
 
@@ -64,8 +68,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def render_headless(cfg: Dict[str, Any]) -> None:
-    os.environ.setdefault("MUJOCO_GL", "egl")
-
     xml_path = resolve_path(SCRIPT_DIR, str(cfg["xml"]))
     args = parse_args()
     output_name = Path(str(args.output)).name
