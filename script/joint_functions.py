@@ -16,6 +16,7 @@ from shapefit_types import Axis
 from gait_function import f, g
 from shape_fit import DebugInfo, create_initial_state, solve_shape_for_time
 import step_backend
+import anneal_backend
 
 N_JOINTS = 18
 
@@ -122,7 +123,7 @@ def _refresh_theoretical_state(t: float) -> None:
         x_joint_indices_0b=X_JOINT_INDICES_0B,
         seglen=POLYLINE_SEGMENT_LENGTHS_M,
         totlen=BODY_LENGTH_M,
-        backend_fn=step_backend.step_backend,
+        backend_fn=anneal_backend.anneal_backend,
         base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
     )
 
