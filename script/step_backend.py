@@ -67,6 +67,8 @@ def _optimize_single_joint(
         fk.setval(seg_i, val)
         return dist_fn(fk.geti(seg_i + 2))
 
+    # TODO Anneal
+
     # tmp: compare initval, initval + 0.001, initval - 0.001
     best_dist = dist(initval)
     # olddist = best_dist

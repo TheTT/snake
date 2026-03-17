@@ -12,20 +12,6 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-# Must be set before importing mujoco so the GL backend is selected correctly.
-# This script is headless-oriented: never use GLFW by default.
-# - if MUJOCO_GL is empty or glfw -> force egl
-# - if user explicitly sets osmesa/egl -> respect it
-# _mujoco_gl = os.environ.get("MUJOCO_GL", "").strip().lower()
-# if _mujoco_gl in ("", "glfw"):
-#     os.environ["MUJOCO_GL"] = "egl"
-
-# _selected_gl = os.environ.get("MUJOCO_GL", "egl").strip().lower() or "egl"
-# if _selected_gl in ("egl", "osmesa"):
-#     os.environ["PYOPENGL_PLATFORM"] = _selected_gl
-# else:
-#     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
-
 import mujoco
 import numpy as np
 
@@ -78,6 +64,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def render_headless(cfg: Dict[str, Any]) -> None:
+    os.environ.setdefault("MUJOCO_GL", "egl")
+
     xml_path = resolve_path(SCRIPT_DIR, str(cfg["xml"]))
     args = parse_args()
     output_name = Path(str(args.output)).name
@@ -150,11 +138,6 @@ def render_headless(cfg: Dict[str, Any]) -> None:
     print(f"timestep={model.opt.timestep:.6f}s, nu={model.nu}, nbody={model.nbody}")
     print(f"free_space_mode={free_space_mode}")
     print(f"fk_mode={fk_mode}")
-    print(
-        "gl_backend="
-        f"{os.environ.get('MUJOCO_GL', '<unset>')}, "
-        f"DISPLAY={os.environ.get('DISPLAY', '<unset>')}"
-    )
     print(f"view_fov_scale={view_fov_scale}, fovy={base_fovy:.2f}->{scaled_fovy:.2f}")
     if free_space_mode:
         print(
