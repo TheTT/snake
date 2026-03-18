@@ -185,7 +185,6 @@ def _optimize_single_joint(
         if evals >= cfg.max_evals:
             break
 
-    set_vals(best)
     return best
 
 def anneal_backend(
@@ -232,7 +231,18 @@ def anneal_backend(
                 cfg=AnnealConfig()
             )
             v[i] = res[0]
-        # fk.setval(i, v[i])
+        fk.setval(i, v[i])
+
+    # Small temporal smoothing to reduce command jitter in dynamic simulation.
+    # Keep X-axis twist joints unchanged; smooth the optimized joints only.
+    smooth_alpha = 0.2
+    keep = 1.0 - smooth_alpha
+    for i, axis in enumerate(param.joint_axes):
+        if axis == Axis.X:
+            continue
+        v[i] = keep * float(v0[i]) + smooth_alpha * float(v[i])
+        v[i] = max(-math.pi / 2, min(math.pi / 2, float(v[i])))
+        fk.setval(i, float(v[i]))
 
     # n8 = fk.geti(8)
     # print("newp[8]=(",n8[0],",",n8[1],",",n8[2],")")
@@ -246,6 +256,7 @@ def anneal_backend(
     # )
     # print("newd[8]=",n8d)
 
+    # DEBUG
     # compute closest fplist index for each FK node
     allp = fk.getallp()
     n_nodes = allp.shape[0]
