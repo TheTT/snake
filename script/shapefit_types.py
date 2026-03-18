@@ -31,7 +31,7 @@ class FitParam:
     joint_axes: Sequence[Axis]
     joint_signs: Sequence[float]
     seglen: Sequence[float]
-    hint_rad: float
+    hint_rad: int
 
 
 @dataclass

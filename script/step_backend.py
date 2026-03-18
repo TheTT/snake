@@ -21,7 +21,7 @@ def _dist_to_polyline(
     p: np.ndarray,
     curve_pts: np.ndarray,
     hint_i: int,
-    radius: float,
+    radius: int,
 ) -> float:
     """
     curve_pts: Nx3 polyline
@@ -33,8 +33,8 @@ def _dist_to_polyline(
         return float(np.dot(d, d))
 
     # DEBUG
-    # start = max(0, hint_i - int(radius))
-    # end = min(n - 2, hint_i + int(radius))
+    # start = max(0, hint_i - radius)
+    # end = min(n - 2, hint_i + radius)
     start = 0
     end = n - 2
 

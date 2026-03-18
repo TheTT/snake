@@ -17,11 +17,11 @@ def _point_segment_dist_sq(p, a, b):
     return float(np.dot(d, d))
 
 
-def _dist_to_polyline(
+def _dist_to_polyline_sq(
     p: np.ndarray,
     curve_pts: np.ndarray,
     hint_i: int,
-    radius: float,
+    radius: int,
 ) -> float:
     """
     curve_pts: Nx3 polyline
@@ -29,8 +29,8 @@ def _dist_to_polyline(
     """
     n = len(curve_pts)
 
-    start = max(0, hint_i - int(radius))
-    end = min(n - 1, hint_i + int(radius))
+    start = max(0, hint_i - radius)
+    end = min(n - 1, hint_i + radius)
     # start = 0
     # end = n - 1
 
@@ -48,6 +48,28 @@ def _dist_to_polyline(
     return best
 
 
+def _cost_builder(
+    ps: list[int],
+    curve_pts: np.ndarray,
+    hint_is: np.ndarray,
+    radius: int,
+):
+    def cost(fk: FK) -> float:
+        total = 0.0
+        for pi in ps:
+            p = fk.geti(pi)
+            hint_i = hint_is[pi]
+            total += _dist_to_polyline_sq(
+                p=p,
+                curve_pts=curve_pts,
+                hint_i=hint_i,
+                radius=radius,
+            )
+        return total
+
+    return cost
+
+
 # Const parameters for anneal
 
 
@@ -58,7 +80,6 @@ def _optimize_single_joint(
     fk: FK,
     cost: Callable[[FK], float],
 ) -> float:
-    """Anneal v[seg_i] from initval to minimize distance from curve to p[seg_i + 2]."""
     def dist(val: float) -> float:
         fk.setval(seg_i, val)
         return cost(fk)
@@ -118,10 +139,16 @@ def anneal_backend(
                 seg_i=i,
                 initval=v[i],
                 fk=fk,
-                cost=lambda fk: _dist_to_polyline(
-                    p=fk.geti(i + 2),
+                # cost=lambda fk: _dist_to_polyline(
+                #     p=fk.geti(i + 2),
+                #     curve_pts=param.fplist,
+                #     hint_i=param.hint_i[i + 2],
+                #     radius=param.hint_rad,
+                # ),
+                cost=_cost_builder(
+                    ps=[i + 2],
                     curve_pts=param.fplist,
-                    hint_i=param.hint_i[i + 2],
+                    hint_is=param.hint_i,
                     radius=param.hint_rad,
                 ),
             )
