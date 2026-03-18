@@ -123,7 +123,7 @@ def _refresh_theoretical_state(t: float) -> None:
         x_joint_indices_0b=X_JOINT_INDICES_0B,
         seglen=POLYLINE_SEGMENT_LENGTHS_M,
         totlen=BODY_LENGTH_M,
-        backend_fn=anneal_backend.anneal_backend,
+        backend_fn=lambda v0, p: anneal_backend.anneal_backend(v0, p, window_size=3),
         base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
     )
 

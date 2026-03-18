@@ -187,9 +187,11 @@ def _optimize_single_joint(
 
     return best
 
+
 def anneal_backend(
     v0: np.ndarray,
     param: FitParam,
+    window_size: int = 1,
 ) -> tuple[np.ndarray, Any]:
     fk = FK(
         jn=param.jn,
@@ -212,26 +214,56 @@ def anneal_backend(
     # )
     # print("oldd[8]=",n8d)
 
+    n_joints = len(param.joint_axes)
+
+    win = max(1, min(int(window_size), n_joints))
+    cfg = AnnealConfig()
+
+    twist_by_joint = np.zeros(n_joints, dtype=np.float64)
     x_i = 0
     for i, axis in enumerate(param.joint_axes):
         if axis == Axis.X:
-            v[i] = param.twist[x_i]
+            twist_by_joint[i] = float(param.twist[x_i])
             x_i += 1
-        else:
-            res = _optimize_single_joint(
-                seg_i=[i],
-                initval=[v[i]],
-                fk=fk,
-                cost=_cost_builder(
-                    ps=[i + 2],
-                    curve_pts=param.fplist,
-                    hint_is=param.hint_i,
-                    radius=param.hint_rad,
-                ),
-                cfg=AnnealConfig()
-            )
-            v[i] = res[0]
-        fk.setval(i, v[i])
+
+    def _apply_entering_joint(jidx: int) -> None:
+        if param.joint_axes[jidx] == Axis.X:
+            v[jidx] = float(twist_by_joint[jidx])
+            fk.setval(jidx, float(v[jidx]))
+
+    def _optimize_window(wstart: int, wend: int) -> None:
+        ps = [k + 2 for k in range(wstart, wend + 1)]
+        segs = [k for k in range(wstart, wend + 1) if param.joint_axes[k] != Axis.X]
+        if not segs:
+            return
+
+        init_vals = [float(v[k]) for k in segs]
+        res = _optimize_single_joint(
+            seg_i=segs,
+            initval=init_vals,
+            fk=fk,
+            cost=_cost_builder(
+                ps=ps,
+                curve_pts=param.fplist,
+                hint_is=param.hint_i,
+                radius=param.hint_rad,
+            ),
+            cfg=cfg,
+        )
+        for idx, val in zip(segs, res):
+            v[idx] = float(val)
+            fk.setval(idx, float(v[idx]))
+
+    first_start = 0
+    first_end = win - 1
+    for j in range(first_start, first_end + 1):
+        _apply_entering_joint(j)
+    _optimize_window(first_start, first_end)
+
+    for wstart in range(1, n_joints - win + 1):
+        wend = wstart + win - 1
+        _apply_entering_joint(wend)
+        _optimize_window(wstart, wend)
 
     # Small temporal smoothing to reduce command jitter in dynamic simulation.
     # Keep X-axis twist joints unchanged; smooth the optimized joints only.
