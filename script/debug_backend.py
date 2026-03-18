@@ -29,7 +29,8 @@ def debug_backend(
     x_i = 0
     for i, axis in enumerate(param.joint_axes):
         if axis == Axis.X:
-            v[i] = float(v[i])
+            v[i] = float(param.twist[x_i])
+            x_i += 1
         elif axis == Axis.Y:
             v[i] = float(math.radians(25.0))
         else:
