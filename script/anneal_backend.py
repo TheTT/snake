@@ -28,19 +28,15 @@ def _dist_to_polyline(
     hint_i: approximate index (uses locality)
     """
     n = len(curve_pts)
-    if n < 2:
-        d = p - curve_pts[0] if n == 1 else p
-        return float(np.dot(d, d))
 
-    # DEBUG
-    # start = max(0, hint_i - int(radius))
-    # end = min(n - 2, hint_i + int(radius))
-    start = 0
-    end = n - 2
+    start = max(0, hint_i - int(radius))
+    end = min(n - 1, hint_i + int(radius))
+    # start = 0
+    # end = n - 1
 
     best = 1e30
 
-    for i in range(start, end + 1):
+    for i in range(start, end):
         d = _point_segment_dist_sq(
             p,
             curve_pts[i],
@@ -60,12 +56,12 @@ def _optimize_single_joint(
     initval: float,
     *,
     fk: FK,
-    dist_fn: Callable[[np.ndarray], float],
+    cost: Callable[[FK], float],
 ) -> float:
     """Anneal v[seg_i] from initval to minimize distance from curve to p[seg_i + 2]."""
     def dist(val: float) -> float:
         fk.setval(seg_i, val)
-        return dist_fn(fk.geti(seg_i + 2))
+        return cost(fk)
 
     # TODO Anneal
 
@@ -122,8 +118,8 @@ def anneal_backend(
                 seg_i=i,
                 initval=v[i],
                 fk=fk,
-                dist_fn=lambda p: _dist_to_polyline(
-                    p=p,
+                cost=lambda fk: _dist_to_polyline(
+                    p=fk.geti(i + 2),
                     curve_pts=param.fplist,
                     hint_i=param.hint_i[i + 2],
                     radius=param.hint_rad,
