@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 import numpy as np
 from typing import Callable, Any
 from dataclasses import dataclass
@@ -215,6 +216,12 @@ def anneal_backend(
     # print("oldd[8]=",n8d)
 
     n_joints = len(param.joint_axes)
+    if n_joints == 0:
+        meta = {
+            "fk": fk,
+            "nearest_idx": np.zeros(0, dtype=np.int32),
+        }
+        return v, meta
 
     win = max(1, min(int(window_size), n_joints))
     cfg = AnnealConfig()
@@ -231,9 +238,7 @@ def anneal_backend(
             v[jidx] = float(twist_by_joint[jidx])
             fk.setval(jidx, float(v[jidx]))
 
-    def _optimize_window(wstart: int, wend: int) -> None:
-        ps = [k + 2 for k in range(wstart, wend + 1)]
-        segs = [k for k in range(wstart, wend + 1) if param.joint_axes[k] != Axis.X]
+    def _optimize_window(segs: list[int], ps: list[int]) -> None:
         if not segs:
             return
 
@@ -254,16 +259,27 @@ def anneal_backend(
             v[idx] = float(val)
             fk.setval(idx, float(v[idx]))
 
-    first_start = 0
-    first_end = win - 1
-    for j in range(first_start, first_end + 1):
-        _apply_entering_joint(j)
-    _optimize_window(first_start, first_end)
+    win_indices = deque(range(win))
+    ps_deque = deque((k + 2) for k in range(win))
+    segs_deque = deque(k for k in range(win) if param.joint_axes[k] != Axis.X)
 
-    for wstart in range(1, n_joints - win + 1):
-        wend = wstart + win - 1
-        _apply_entering_joint(wend)
-        _optimize_window(wstart, wend)
+    for j in win_indices:
+        _apply_entering_joint(j)
+    _optimize_window(list(segs_deque), list(ps_deque))
+
+    for right in range(win, n_joints):
+        left = win_indices.popleft()
+        ps_deque.popleft()
+        if param.joint_axes[left] != Axis.X and segs_deque and segs_deque[0] == left:
+            segs_deque.popleft()
+
+        win_indices.append(right)
+        ps_deque.append(right + 2)
+        _apply_entering_joint(right)
+        if param.joint_axes[right] != Axis.X:
+            segs_deque.append(right)
+
+        _optimize_window(list(segs_deque), list(ps_deque))
 
     # Small temporal smoothing to reduce command jitter in dynamic simulation.
     # Keep X-axis twist joints unchanged; smooth the optimized joints only.
