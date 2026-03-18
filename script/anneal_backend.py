@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import numpy as np
 from typing import Callable, Any
+from dataclasses import dataclass
+import random
 
 from shapefit_types import Axis, FitParam
 from fwd_kine import FK
@@ -71,38 +73,120 @@ def _cost_builder(
 
 
 # Const parameters for anneal
+@dataclass
+class AnnealConfig:
+    max_evals: int = 20
+    temp0: float = 0.03
+    alpha: float = 0.9
+    sigma0: float = 0.01
+    min_sigma: float = 1e-4
+    max_sigma: float = 0.1
+    accept_low: float = 0.2
+    accept_high: float = 0.5
+    adapt_rate: float = 0.85
+    early_stop: int = 6
 
 
 def _optimize_single_joint(
-    seg_i: int,
-    initval: float,
+    seg_i: list[int],
+    initval: list[float],
     *,
-    fk: FK,
+    fk,
     cost: Callable[[FK], float],
-) -> float:
-    def dist(val: float) -> float:
-        fk.setval(seg_i, val)
-        return cost(fk)
+    cfg: AnnealConfig,
+) -> list[float]:
 
-    # TODO Anneal
+    def clamp(v):
+        return [max(-math.pi/2, min(math.pi/2, x)) for x in v]
 
-    # tmp: compare initval, initval + 0.001, initval - 0.001
-    best_dist = dist(initval)
-    # olddist = best_dist
-    best_val = initval
-    for delta in [0.01, -0.01]:
-        if delta < - math.pi/2 or delta > math.pi/2:
+    def set_vals(v):
+        for i, val in zip(seg_i, v):
+            fk.setval(i, val)
+
+    # init
+    cur = clamp(list(initval))
+    set_vals(cur)
+    best = list(cur)
+    best_cost = cost(fk)
+    cur_cost = best_cost
+
+    evals = 1
+    T = cfg.temp0
+    sigma = cfg.sigma0
+
+    no_improve = 0
+    acc_cnt = 0
+    tried = 0
+
+    while evals < cfg.max_evals:
+        cand = [c + random.gauss(0, sigma) for c in cur]
+        cand = clamp(cand)
+
+        if all(abs(a - b) < 1e-12 for a, b in zip(cand, cur)):
+            T *= cfg.alpha
             continue
-        val = initval + delta
-        d = dist(val)
-        if d < best_dist:
-            best_dist = d
-            best_val = val
-    # best_val = initval + 0.01
-    # print(olddist, "->", best_dist)
 
-    return best_val
+        set_vals(cand)
+        c_cost = cost(fk)
+        evals += 1
+        tried += 1
 
+        delta = c_cost - cur_cost
+        accept = False
+
+        if delta <= 0:
+            accept = True
+        elif T > 1e-12 and random.random() < math.exp(-delta / T):
+            accept = True
+
+        if accept:
+            cur = cand
+            cur_cost = c_cost
+            acc_cnt += 1
+
+            if c_cost < best_cost:
+                best = list(cand)
+                best_cost = c_cost
+                no_improve = 0
+            else:
+                no_improve += 1
+        else:
+            no_improve += 1
+
+        # sigma 自适应（低频触发）
+        if tried >= 5:
+            rate = acc_cnt / tried
+            if rate < cfg.accept_low:
+                sigma = max(cfg.min_sigma, sigma * cfg.adapt_rate)
+            elif rate > cfg.accept_high:
+                sigma = min(cfg.max_sigma, sigma / cfg.adapt_rate)
+            acc_cnt = 0
+            tried = 0
+
+        T *= cfg.alpha
+
+        if no_improve >= cfg.early_stop:
+            break
+
+    # ---- 极简局部精修（只一轮，极低成本）----
+    step = 0.005
+    for i in range(len(best)):
+        for s in (step, -step):
+            cand = list(best)
+            cand[i] = max(-math.pi/2, min(math.pi/2, cand[i] + s))
+            set_vals(cand)
+            c_cost = cost(fk)
+            evals += 1
+            if c_cost < best_cost:
+                best = cand
+                best_cost = c_cost
+            if evals >= cfg.max_evals:
+                break
+        if evals >= cfg.max_evals:
+            break
+
+    set_vals(best)
+    return best
 
 def anneal_backend(
     v0: np.ndarray,
@@ -135,24 +219,20 @@ def anneal_backend(
             v[i] = param.twist[x_i]
             x_i += 1
         else:
-            v[i] = _optimize_single_joint(
-                seg_i=i,
-                initval=v[i],
+            res = _optimize_single_joint(
+                seg_i=[i],
+                initval=[v[i]],
                 fk=fk,
-                # cost=lambda fk: _dist_to_polyline(
-                #     p=fk.geti(i + 2),
-                #     curve_pts=param.fplist,
-                #     hint_i=param.hint_i[i + 2],
-                #     radius=param.hint_rad,
-                # ),
                 cost=_cost_builder(
                     ps=[i + 2],
                     curve_pts=param.fplist,
                     hint_is=param.hint_i,
                     radius=param.hint_rad,
                 ),
+                cfg=AnnealConfig()
             )
-        fk.setval(i, v[i])
+            v[i] = res[0]
+        # fk.setval(i, v[i])
 
     # n8 = fk.geti(8)
     # print("newp[8]=(",n8[0],",",n8[1],",",n8[2],")")

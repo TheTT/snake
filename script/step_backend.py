@@ -74,9 +74,9 @@ def _optimize_single_joint(
     # olddist = best_dist
     best_val = initval
     for delta in [0.01, -0.01]:
-        if delta < - math.pi/2 or delta > math.pi/2:
-            continue
         val = initval + delta
+        if val < - math.pi/2 or val > math.pi/2:
+            continue
         d = dist(val)
         if d < best_dist:
             best_dist = d
