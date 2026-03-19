@@ -126,7 +126,6 @@ def _refresh_theoretical_state(t: float) -> None:
         totlen=BODY_LENGTH_M,
         # backend_fn=lambda v0, p: anneal_backend.anneal_backend(v0, p, window_size=3),
         backend_fn=lambda v0, p: debug_backend.debug_backend(v0, p),
-        base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
     )
 
     # joint_angles = assemble_joint(
@@ -136,7 +135,7 @@ def _refresh_theoretical_state(t: float) -> None:
     # )
 
     for i in range(N_JOINTS):
-        _LATEST_JOINT_ANGLES[i] = float(_FIT_STATE.joint_tar[i])
+        _LATEST_JOINT_ANGLES[i] = (float(_FIT_STATE.joint_tar[i]) + TWIST_X_BASE_ANGLE_RAD) if (JOINT_AXES[i] == Axis.X) else (float(_FIT_STATE.joint_tar[i]))
 
     _LAST_REFRESH_T = float(t)
 

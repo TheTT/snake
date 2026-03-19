@@ -172,7 +172,6 @@ def solve_shape_for_time(
     seglen: Sequence[float],
     totlen: float,
     backend_fn: BackendFn,
-    base_twist_rad: float,
 ) -> DebugInfo:
     twist_no_base = compute_twist(
         g_fn=g_fn,
@@ -212,10 +211,6 @@ def solve_shape_for_time(
         state.joint_tar,
         backend_param,
     )
-
-    # add base_twist_rad
-    for idx in x_joint_indices_0b:
-        state.joint_tar[idx] += base_twist_rad
 
     # backend_fn may return:
     # - just angles (np.ndarray)
