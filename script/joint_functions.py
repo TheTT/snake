@@ -53,7 +53,7 @@ JOINT_SIGNS = [
     +1, -1, -1,
 ]
 
-TWIST_X_BASE_ANGLE_RAD = math.pi / 2.0
+TWIST_X_BASE_ANGLE_RAD = - math.pi / 2.0
 
 Mat3 = tuple[
     tuple[float, float, float],
@@ -136,7 +136,7 @@ def _refresh_theoretical_state(t: float) -> None:
     # )
 
     for i in range(N_JOINTS):
-        _LATEST_JOINT_ANGLES[i] = float(_FIT_STATE.joint_tar[i]) * JOINT_SIGNS[i]
+        _LATEST_JOINT_ANGLES[i] = float(_FIT_STATE.joint_tar[i])
 
     _LAST_REFRESH_T = float(t)
 
