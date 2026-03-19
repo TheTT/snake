@@ -41,7 +41,7 @@ class DebugInfo:
     hint_i: np.ndarray
 
 
-BackendFn = Callable[[np.ndarray, FitParam], Union[np.ndarray, tuple[np.ndarray, Any]]]
+BackendFn = Callable[[np.ndarray, FitParam], np.ndarray]
 
 
 def create_initial_state(num_joints: int) -> FitState:

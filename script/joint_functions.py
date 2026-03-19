@@ -15,9 +15,7 @@ from shapefit_types import Axis
 
 from gait_function import f, g
 from shape_fit import DebugInfo, create_initial_state, solve_shape_for_time
-import step_backend
 import anneal_backend
-import debug_backend
 
 N_JOINTS = 18
 
@@ -82,31 +80,6 @@ _LAST_REFRESH_T: float | None = None
 _LAST_DEBUG_INFO: DebugInfo | None = None
 
 
-def _np_to_mat3(r: np.ndarray) -> Mat3:
-    return (
-        (float(r[0, 0]), float(r[0, 1]), float(r[0, 2])),
-        (float(r[1, 0]), float(r[1, 1]), float(r[1, 2])),
-        (float(r[2, 0]), float(r[2, 1]), float(r[2, 2])),
-    )
-
-
-# def assemble_joint(
-#     joint_tar: np.ndarray,
-#     *,
-#     x_joint_indices_0b: Sequence[int],
-#     base_twist_rad: float,
-# ) -> np.ndarray:
-#     """Assemble full joint angle array from state.
-
-#     joint_angles[i] = joint_tar + base_twist for x joints.
-#     """
-#     joint_angles = joint_tar.copy()
-#     for i in x_joint_indices_0b:
-#         joint_angles[i] += base_twist_rad
-
-#     return joint_angles
-
-
 def _refresh_theoretical_state(t: float) -> None:
     global _LAST_REFRESH_T, _LAST_DEBUG_INFO
 
@@ -124,15 +97,8 @@ def _refresh_theoretical_state(t: float) -> None:
         x_joint_indices_0b=X_JOINT_INDICES_0B,
         seglen=POLYLINE_SEGMENT_LENGTHS_M,
         totlen=BODY_LENGTH_M,
-        # backend_fn=lambda v0, p: anneal_backend.anneal_backend(v0, p, window_size=3),
-        backend_fn=lambda v0, p: debug_backend.debug_backend(v0, p),
+        backend_fn=lambda v0, p: anneal_backend.anneal_backend(v0, p, window_size=3),
     )
-
-    # joint_angles = assemble_joint(
-    #     joint_tar=_FIT_STATE.joint_tar,
-    #     x_joint_indices_0b=X_JOINT_INDICES_0B,
-    #     base_twist_rad=TWIST_X_BASE_ANGLE_RAD,
-    # )
 
     for i in range(N_JOINTS):
         _LATEST_JOINT_ANGLES[i] = (float(_FIT_STATE.joint_tar[i]) + TWIST_X_BASE_ANGLE_RAD) if (JOINT_AXES[i] == Axis.X) else (float(_FIT_STATE.joint_tar[i]))

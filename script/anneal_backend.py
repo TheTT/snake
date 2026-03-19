@@ -88,7 +88,7 @@ class AnnealConfig:
     early_stop: int = 6
 
 
-def _optimize_single_joint(
+def _optimize_multi(
     seg_i: list[int],
     initval: list[float],
     *,
@@ -193,7 +193,7 @@ def anneal_backend(
     v0: np.ndarray,
     param: FitParam,
     window_size: int = 1,
-) -> tuple[np.ndarray, Any]:
+) -> np.ndarray:
     fk = FK(
         jn=param.jn,
         init_angles=v0,
@@ -203,25 +203,7 @@ def anneal_backend(
     )
     v = v0.copy()
 
-    # n8 = fk.geti(8)
-    # print("\noldp[8]=(",n8[0],",",n8[1],",",n8[2],")")
-    # # n8h = param.fplist[param.hint_i[8]]
-    # # print("hint[8]=(",n8h[0],",",n8h[1],",",n8h[2],")")
-    # n8d = _dist_to_polyline(
-    #     p=n8,
-    #     curve_pts=param.fplist,
-    #     hint_i=param.hint_i[8],
-    #     radius=param.hint_rad,
-    # )
-    # print("oldd[8]=",n8d)
-
     n_joints = len(param.joint_axes)
-    if n_joints == 0:
-        meta = {
-            "fk": fk,
-            "nearest_idx": np.zeros(0, dtype=np.int32),
-        }
-        return v, meta
 
     win = max(1, min(int(window_size), n_joints))
     cfg = AnnealConfig()
@@ -243,7 +225,7 @@ def anneal_backend(
             return
 
         init_vals = [float(v[k]) for k in segs]
-        res = _optimize_single_joint(
+        res = _optimize_multi(
             seg_i=segs,
             initval=init_vals,
             fk=fk,
@@ -290,35 +272,5 @@ def anneal_backend(
             continue
         v[i] = keep * float(v0[i]) + smooth_alpha * float(v[i])
         v[i] = max(-math.pi / 2, min(math.pi / 2, float(v[i])))
-        fk.setval(i, float(v[i]))
 
-    # n8 = fk.geti(8)
-    # print("newp[8]=(",n8[0],",",n8[1],",",n8[2],")")
-    # # n8h = param.fplist[param.hint_i[8]]
-    # # print("hint[8]=(",n8h[0],",",n8h[1],",",n8h[2],")")
-    # n8d = _dist_to_polyline(
-    #     p=n8,
-    #     curve_pts=param.fplist,
-    #     hint_i=param.hint_i[8],
-    #     radius=param.hint_rad,
-    # )
-    # print("newd[8]=",n8d)
-
-    # DEBUG
-    # compute closest fplist index for each FK node
-    allp = fk.getallp()
-    n_nodes = allp.shape[0]
-    nearest_idx = np.zeros(n_nodes, dtype=np.int32)
-    # brute-force nearest; fplist size is small (~200)
-    for ni in range(n_nodes):
-        p = allp[ni]
-        diffs = param.fplist - p[None, :]
-        d2 = np.sum(diffs * diffs, axis=1)
-        nearest_idx[ni] = int(np.argmin(d2))
-
-    # pack fk and nearest indices into a single Any (dict) for backward compatibility
-    meta = {
-        "fk": fk,
-        "nearest_idx": nearest_idx,
-    }
-    return v, meta
+    return v
