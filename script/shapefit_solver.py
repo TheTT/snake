@@ -208,13 +208,14 @@ def solve_shape_for_time(
         seglen=seglen,
         hint_rad=_HINT_RADIUS,
     )
-    twist = twist_no_base.copy() + np.array([base_twist_rad] * len(x_joint_indices_0b), dtype=np.float64)
-    for i, idx in enumerate(x_joint_indices_0b):
-        backend_param.twist[i] = twist[i]
     backend_ret = backend_fn(
         state.joint_tar,
         backend_param,
     )
+
+    # add base_twist_rad
+    for idx in x_joint_indices_0b:
+        state.joint_tar[idx] += base_twist_rad
 
     # backend_fn may return:
     # - just angles (np.ndarray)
