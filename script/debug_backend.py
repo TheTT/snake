@@ -31,7 +31,7 @@ def debug_backend(
         if axis == Axis.X:
             v[i] = float(param.twist[x_i])
             x_i += 1
-        elif axis == Axis.Y:
+        elif axis == Axis.Z:
             v[i] = float(math.radians(25.0))
         else:
             v[i] = 0.0

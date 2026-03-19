@@ -180,7 +180,6 @@ def solve_shape_for_time(
         x_joint_indices_0b=x_joint_indices_0b,
         seglen=seglen,
     )
-    twist = twist_no_base.copy() + np.array([base_twist_rad] * len(x_joint_indices_0b), dtype=np.float64)
 
     fplist = get_fsample(f_fn, t, _SAMPLE_NUMBER)
     # ftrans is a 3*3 transform
@@ -203,12 +202,15 @@ def solve_shape_for_time(
         jn=n_joints,
         fplist=fplist,
         hint_i=hint_i,
-        twist=twist,
+        twist=twist_no_base,
         joint_axes=joint_axes,
         joint_signs=joint_signs,
         seglen=seglen,
         hint_rad=_HINT_RADIUS,
     )
+    twist = twist_no_base.copy() + np.array([base_twist_rad] * len(x_joint_indices_0b), dtype=np.float64)
+    for i, idx in enumerate(x_joint_indices_0b):
+        backend_param.twist[i] = twist[i]
     backend_ret = backend_fn(
         state.joint_tar,
         backend_param,

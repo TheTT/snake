@@ -41,7 +41,7 @@ JOINT_AXES = [
     Axis.Z, Axis.X, Axis.Y,
     Axis.Z, Axis.X, Axis.Y,
     Axis.Z, Axis.X, Axis.Y,
-    Axis.Z, Axis.X, Axis.Z,
+    Axis.Z, Axis.X, Axis.Y,
 ]
 
 JOINT_SIGNS = [
@@ -53,7 +53,7 @@ JOINT_SIGNS = [
     +1, -1, -1,
 ]
 
-TWIST_X_BASE_ANGLE_RAD = - math.pi / 2.0
+TWIST_X_BASE_ANGLE_RAD = math.pi / 2.0
 
 Mat3 = tuple[
     tuple[float, float, float],
