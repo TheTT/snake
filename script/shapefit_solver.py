@@ -21,8 +21,8 @@ def compute_twist(
     """
     # TODO inte twist
 
-    # tmp: [0]*len(x_joint_indices_0b)
-    return np.zeros(len(x_joint_indices_0b), dtype=np.float64)
+    # tmp: g*len(x_joint_indices_0b)
+    return np.array([g_fn(float(t), float(s / sum(seglen))) for s in seglen[:len(x_joint_indices_0b)]], dtype=np.float64)
 
 
 _SAMPLE_NUMBER = 200
