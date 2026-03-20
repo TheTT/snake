@@ -7,15 +7,12 @@ This module exposes:
 
 from __future__ import annotations
 
+import json
 import math
-from typing import Callable, Dict, List, Sequence
+from pathlib import Path
+from typing import Callable, Dict, List
+from enum import IntEnum
 
-import numpy as np
-from shapefit_types import Axis
-
-from gait_function import f, g
-from shape_fit import DebugInfo, create_initial_state, solve_shape_for_time
-import anneal_backend
 
 N_JOINTS = 18
 
@@ -32,6 +29,11 @@ POLYLINE_SEGMENT_LENGTHS_M = [
 ]
 
 BODY_LENGTH_M = float(sum(float(x) for x in POLYLINE_SEGMENT_LENGTHS_M))
+
+class Axis(IntEnum):
+    X = 0
+    Y = 1
+    Z = 2
 
 JOINT_AXES = [
     Axis.Z, Axis.X, Axis.Y,
@@ -53,70 +55,117 @@ JOINT_SIGNS = [
 
 TWIST_X_BASE_ANGLE_RAD = math.pi / 2.0
 
-Mat3 = tuple[
-    tuple[float, float, float],
-    tuple[float, float, float],
-    tuple[float, float, float],
-]
-
-if len(JOINT_AXES) != N_JOINTS:
-    raise ValueError(f"JOINT_AXES length must be {N_JOINTS}, got {len(JOINT_AXES)}")
-if len(JOINT_SIGNS) != N_JOINTS:
-    raise ValueError(f"JOINT_SIGNS length must be {N_JOINTS}, got {len(JOINT_SIGNS)}")
-if len(POLYLINE_SEGMENT_LENGTHS_M) != N_JOINTS + 1:
-    raise ValueError(
-        "POLYLINE_SEGMENT_LENGTHS_M length must be "
-        f"{N_JOINTS + 1}, got {len(POLYLINE_SEGMENT_LENGTHS_M)}"
-    )
-
 X_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a == Axis.X]
 
-_FIT_STATE = create_initial_state(
-    num_joints=N_JOINTS,
+_LATEST_JOINT_ANGLES: List[float] = [0.0 for _ in range(N_JOINTS)]
+
+
+# 关节中心弧长：第 i 个关节位于前 i+1 段长度之后
+_JOINT_CENTER_LS_M = tuple(
+    sum(POLYLINE_SEGMENT_LENGTHS_M[: i + 1]) for i in range(N_JOINTS)
 )
 
-_LATEST_JOINT_ANGLES: List[float] = [0.0 for _ in range(N_JOINTS)]
-_LAST_REFRESH_T: float | None = None
-_LAST_DEBUG_INFO: DebugInfo | None = None
+# 每个关节对应的局部积分长度，取相邻两段的平均，作为中点积分近似
+_JOINT_SPANS_M = tuple(
+    0.5 * (POLYLINE_SEGMENT_LENGTHS_M[i] + POLYLINE_SEGMENT_LENGTHS_M[i + 1])
+    for i in range(N_JOINTS)
+)
 
 
-def _refresh_theoretical_state(t: float) -> None:
-    global _LAST_REFRESH_T, _LAST_DEBUG_INFO
-
-    if _LAST_REFRESH_T == t:
-        return
-
-    _LAST_DEBUG_INFO = solve_shape_for_time(
-        _FIT_STATE,
-        f_fn=f,
-        g_fn=g,
-        t=float(t),
-        n_joints=N_JOINTS,
-        joint_axes=JOINT_AXES,
-        joint_signs=JOINT_SIGNS,
-        x_joint_indices_0b=X_JOINT_INDICES_0B,
-        seglen=POLYLINE_SEGMENT_LENGTHS_M,
-        totlen=BODY_LENGTH_M,
-        backend_fn=lambda v0, p: anneal_backend.anneal_backend(v0, p, window_size=3),
-    )
-
-    for i in range(N_JOINTS):
-        _LATEST_JOINT_ANGLES[i] = (float(_FIT_STATE.joint_tar[i]) + TWIST_X_BASE_ANGLE_RAD) if (JOINT_AXES[i] == Axis.X) else (float(_FIT_STATE.joint_tar[i]))
-
-    _LAST_REFRESH_T = float(t)
+_SW_JSON_PATH = Path(__file__).resolve().parent / "gait" / "sw.json"
+_GAIT_DEFAULTS = {
+    "ka": 0.02,
+    "kb": 0.08,
+    "ktheta": 1.0 / (2.0 * math.pi),
+    "omega_t": 0.0,
+    "phi_offset": 0.0,
+    "rollv": 0.0,
+    "a1": 0.0,
+}
+_GAIT_PARAMS = dict(_GAIT_DEFAULTS)
+try:
+    raw = json.loads(_SW_JSON_PATH.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        for k in _GAIT_DEFAULTS.keys():
+            if k in raw and raw[k] is not None:
+                _GAIT_PARAMS[k] = float(raw[k])
+except Exception:
+    # Keep defaults if file is missing or malformed.
+    pass
 
 
-def get_debug_info(t: float) -> DebugInfo | None:
-    _refresh_theoretical_state(float(t))
-    return _LAST_DEBUG_INFO
+def _cfg_float(cfg: dict, *keys: str, default: float = 0.0) -> float:
+    for k in keys:
+        if k in cfg and cfg[k] is not None:
+            return float(cfg[k])
+    return float(default)
+
+
+def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float]:
+    """
+    Returns:
+        kappa_a, kappa_b, tau
+    """
+    ka = _cfg_float(cfg, "ka", "k_a", default=0.02)
+    kb = _cfg_float(cfg, "kb", "k_b", default=0.08)
+    ktheta = _cfg_float(cfg, "ktheta", "k_theta", default=1.0 / (2.0 * math.pi))
+    omega_t = _cfg_float(cfg, "omega_t", "omega", default=0.0)
+    phi0 = _cfg_float(cfg, "phi_offset", "phi0", default=0.0)
+
+    # rolling coefficient (paper's a0), and twisting gradient (paper's a1)
+    rollv = _cfg_float(cfg, "rollv", "a0", default=0.0)
+    a1 = _cfg_float(cfg, "a1", "twistv", default=0.0)
+
+    # Elliptical helix parameter
+    psi = 2.0 * math.pi * (ktheta * l - omega_t * t)
+
+    denom = (
+        ka * ka * (math.sin(psi) ** 2)
+        + kb * kb * (math.cos(psi) ** 2)
+        + ktheta * ktheta
+    ) ** 1.5
+
+    if denom == 0.0:
+        kappa_f = 0.0
+    else:
+        kappa_f = (ka * kb * ktheta * ktheta) / denom
+
+    # complete-frame phase: base sidewinding phase + rolling/twisting term
+    phase = psi + phi0 + (a1 * l + rollv) * t
+
+    kappa_a = kappa_f * math.sin(phase)
+    kappa_b = kappa_f * math.cos(phase)
+    tau = a1 * t
+
+    return kappa_a, kappa_b, tau
 
 
 def _make_joint_function(joint_index: int) -> Callable[[float], float]:
-    def _joint_fn(t: float) -> float:
-        _refresh_theoretical_state(float(t))
-        return _LATEST_JOINT_ANGLES[joint_index]
+    if not (0 <= joint_index < N_JOINTS):
+        raise IndexError(f"joint_index out of range: {joint_index}")
 
-    return _joint_fn
+    l_i = _JOINT_CENTER_LS_M[joint_index]
+    span_i = _JOINT_SPANS_M[joint_index]
+    axis = JOINT_AXES[joint_index]
+    sign = JOINT_SIGNS[joint_index]
+    cfg = _GAIT_PARAMS
+
+    def joint_fn(t: float) -> float:
+        kappa_a, kappa_b, tau = _shape_functions(l_i, float(t), cfg)
+
+        # Z -> dorsal bending, Y -> lateral bending, X -> twist
+        if axis == Axis.Z:
+            angle = span_i * kappa_b
+        elif axis == Axis.Y:
+            angle = span_i * kappa_a
+        elif axis == Axis.X:
+            angle = span_i * tau
+        else:
+            raise ValueError(f"Unknown axis: {axis}")
+
+        return sign * angle
+
+    return joint_fn
 
 
 JOINT_FUNCTIONS: Dict[str, Callable[[float], float]] = {
