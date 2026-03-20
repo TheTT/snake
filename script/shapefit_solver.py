@@ -19,15 +19,35 @@ def compute_twist(
 ) -> np.ndarray:
     """Compute per-x-joint twist. Returns twist values without base_twist (for FK/geometry use).
     """
-    # TODO inte twist
+    n_x = len(x_joint_indices_0b)
+    total_len = float(sum(float(s) for s in seglen))
 
-    # tmp: g*len(x_joint_indices_0b)
-    return np.array([g_fn(float(t), float(s / sum(seglen))) for s in seglen[:len(x_joint_indices_0b)]], dtype=np.float64)
+    # joint positions in normalized arc-length [0, 1]
+    cum = np.cumsum(np.asarray(seglen, dtype=np.float64)) / total_len
+    x_pos = np.array([float(cum[int(i)]) for i in x_joint_indices_0b], dtype=np.float64)
+
+    boundaries = np.empty(n_x + 1, dtype=np.float64)
+    boundaries[0] = 0.0
+    boundaries[1:-1] = 0.5 * (x_pos[:-1] + x_pos[1:])
+    boundaries[-1] = 1.0
+
+    # Integrate g_fn on each boundary interval with trapezoidal rule.
+    twist = np.zeros(n_x, dtype=np.float64)
+    n_int_samples = 16
+    t_float = float(t)
+    for i in range(n_x):
+        a = float(boundaries[i])
+        b = float(boundaries[i + 1])
+        grid = np.linspace(a, b, n_int_samples + 1, dtype=np.float64)
+        vals = np.array([float(g_fn(t_float, float(s))) for s in grid], dtype=np.float64)
+        twist[i] = float(np.trapz(vals, grid))
+
+    return twist
 
 
 _SAMPLE_NUMBER = 200
-# DEBUG bigger hint radius for better convergence, but slower
-_HINT_RADIUS = 50
+# bigger hint radius for better convergence, but slower
+_HINT_RADIUS = 20
 
 
 def get_fsample(

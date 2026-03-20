@@ -66,4 +66,4 @@ def f(t: float, s: float) -> np.ndarray:
 
 def g(t: float, s: float) -> float:
     """Sample twist field: always zero."""
-    return (math.pi / 6.0) * min(1.0, t / 5.0)
+    return math.pi * min(1.0, t / 5.0)
