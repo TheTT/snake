@@ -103,8 +103,6 @@ def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float
     """
     ka = _cfg_float(cfg, "ka", 0.03)
     kb = _cfg_float(cfg, "kb", 0.09)
-    gain = _cfg_float(cfg, "gain", 1.0)
-
     wave_number = _cfg_float(cfg, "wave_number", 1.0)
     period = _cfg_float(cfg, "period", 5.0)
     phi0 = _cfg_float(cfg, "phi_offset", 0.0)
@@ -133,8 +131,8 @@ def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float
     # complete-frame phase
     phase = psi + phi0 + (a1 * l + rollv) * t
 
-    kappa_a = gain * kappa_f * math.sin(phase)
-    kappa_b = gain * kappa_f * math.cos(phase)
+    kappa_a = kappa_f * math.sin(phase)
+    kappa_b = kappa_f * math.cos(phase)
 
     # torsion density; the joint output integrates this over one span
     tau = a1 * t
@@ -160,10 +158,12 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
         #   Axis.Z -> dorsal
         #   Axis.Y -> lateral
         #   Axis.X -> twist
+        gain = _cfg_float(cfg, "gain", 1.0)
+
         if axis == Axis.Z:
-            raw_angle = span_i * kappa_b
+            raw_angle = span_i * kappa_b * gain
         elif axis == Axis.Y:
-            raw_angle = span_i * kappa_a
+            raw_angle = span_i * kappa_a * gain
         elif axis == Axis.X:
             raw_angle = span_i * tau - TWIST_X_BASE_ANGLE_RAD
         else:
