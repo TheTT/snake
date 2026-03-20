@@ -40,7 +40,7 @@ def compute_twist(
         b = float(boundaries[i + 1])
         grid = np.linspace(a, b, n_int_samples + 1, dtype=np.float64)
         vals = np.array([float(g_fn(t_float, float(s))) for s in grid], dtype=np.float64)
-        twist[i] = float(np.trapz(vals, grid))
+        twist[i] = float(0.5 * np.sum((vals[1:] + vals[:-1]) * (grid[1:] - grid[:-1])))
 
     return twist
 
