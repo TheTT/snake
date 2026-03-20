@@ -47,7 +47,7 @@ def compute_twist(
 
 _SAMPLE_NUMBER = 200
 # bigger hint radius for better convergence, but slower
-_HINT_RADIUS = 20
+_HINT_RADIUS = 50
 
 
 def get_fsample(
