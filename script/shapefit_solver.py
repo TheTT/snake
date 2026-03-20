@@ -63,9 +63,10 @@ def get_ftrans(
     fplist: np.ndarray,
     totlen: float,
     first_joint_axis: Axis,
+    frame_x_axis: np.ndarray,
     last_UP: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute transform to roughly align the curve with the robot's head seg.
+    """Compute transform to map curve into a robot-following frame.
     fplist: fplist[0]=[0,0,0] ensured
     Returns (ftrans, new_UP).
     """
@@ -74,64 +75,26 @@ def get_ftrans(
     seg_lengths = np.linalg.norm(diffs, axis=1)
     scale = totlen / seg_lengths.sum()
 
-    # get tangent around s=0: assume fplist is (N,3) and use it directly.
-    pts = np.asarray(fplist, dtype=np.float64)
-    base = pts[0]
-    x_axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    for j in range(1, pts.shape[0]):
-        dvec = base - pts[j]
-        dist = float(np.linalg.norm(dvec))
-        if dist > 1e-9:
-            x_axis = dvec / dist
-            break
+    x_axis = np.asarray(frame_x_axis, dtype=np.float64)
+    x_norm = float(np.linalg.norm(x_axis))
+    if x_norm > 1e-9:
+        x_axis = x_axis / x_norm
+    else:
+        x_axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)
 
-    # get binormal around s=0
-    j_found = None
-    for j in range(1, pts.shape[0]):
-        dvec = pts[j] - base
-        if float(np.linalg.norm(dvec)) > 1e-9:
-            j_found = j
-            break
-
-    binorm_proj = None
-    if j_found is not None:
-        v0j = pts[j_found] - base
-        # find k
-        k_found = None
-        for k in range(j_found + 1, pts.shape[0]):
-            vjk = pts[k] - pts[j_found]
-            if float(np.linalg.norm(vjk)) <= 1e-9:
-                continue
-            # check collinearity of v0j and vjk via cross product norm
-            cross = np.cross(v0j, vjk)
-            if float(np.linalg.norm(cross)) > 1e-9:
-                k_found = k
-                break
-
-        if k_found is not None:
-            vjk = pts[k_found] - pts[j_found]
-            binormal = np.cross(v0j, vjk)
-            # project binormal onto plane orthogonal to x_axis
-            binormal = np.asarray(binormal, dtype=np.float64)
-            proj = binormal - (float(np.dot(binormal, x_axis))) * x_axis
-            proj_norm = float(np.linalg.norm(proj))
-            if proj_norm > 1e-9:
-                binorm_proj = proj / proj_norm
-
-    # fallback: project last_UP onto plane orthogonal to x_axis
-    if binorm_proj is None:
-        proj = last_UP - (float(np.dot(last_UP, x_axis))) * x_axis
-        proj_norm = float(np.linalg.norm(proj))
-        if proj_norm > 1e-9:
-            binorm_proj = proj / proj_norm
+    # project last_UP onto plane orthogonal to x_axis
+    proj = last_UP - (float(np.dot(last_UP, x_axis))) * x_axis
+    proj_norm = float(np.linalg.norm(proj))
+    if proj_norm > 1e-9:
+        binorm_proj = proj / proj_norm
+    else:
+        if abs(x_axis[0]) < 0.9:
+            tmp = np.array([1.0, 0.0, 0.0], dtype=np.float64)
         else:
-            if abs(x_axis[0]) < 0.9:
-                tmp = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-            else:
-                tmp = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-            proj = tmp - (float(np.dot(tmp, x_axis))) * x_axis
-            proj /= float(np.linalg.norm(proj))
-            binorm_proj = proj
+            tmp = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        proj = tmp - (float(np.dot(tmp, x_axis))) * x_axis
+        proj /= float(np.linalg.norm(proj))
+        binorm_proj = proj
 
     # choose sign closest to last_UP if provided
     cur_UP = binorm_proj
@@ -200,9 +163,29 @@ def solve_shape_for_time(
         seglen=seglen,
     )
 
+    # Use previous solved shape as robot-following frame, so f curve's own
+    # rotation/evolution is preserved and not canceled by per-frame re-alignment.
+    prev_fk = FK(
+        jn=n_joints,
+        init_angles=state.joint_tar,
+        seg_len=seglen,
+        joint_axes=joint_axes,
+        joint_signs=joint_signs,
+    )
+    prev_fk_points = prev_fk.getallp().copy()
+    frame_x_axis = prev_fk_points[-1] - prev_fk_points[0]
+    if float(np.linalg.norm(frame_x_axis)) <= 1e-9:
+        frame_x_axis = np.array([-1.0, 0.0, 0.0], dtype=np.float64)
+
     fplist = get_fsample(f_fn, t, _SAMPLE_NUMBER)
     # ftrans is a 3*3 transform
-    ftrans, state.last_UP = get_ftrans(fplist, totlen, joint_axes[0], state.last_UP)
+    ftrans, state.last_UP = get_ftrans(
+        fplist,
+        totlen,
+        joint_axes[0],
+        frame_x_axis,
+        state.last_UP,
+    )
     fplist = (ftrans @ fplist.T).T
     # Hint indices for closest curve point
     hint_i = get_hint(
