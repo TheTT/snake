@@ -72,40 +72,24 @@ def _load_gait_params() -> dict:
 
 def _cfg_float(cfg: dict, key: str, default: float = 0.0) -> float:
     v = cfg.get(key, default)
-    if v is None:
-        return float(default)
-    return float(v)
+    return float(default if v is None else v)
 
 
 def _joint_center_l(joint_index: int) -> float:
-    # Keep the same convention as your previous polyline setup:
-    # joint i is placed at the cumulative length up to segment i.
     return float(sum(POLYLINE_SEGMENT_LENGTHS_M[: joint_index + 1]))
 
 
 def _joint_span(joint_index: int) -> float:
-    # Midpoint-rule window around each joint.
-    # This approximates the paper's segment-wise integral over [l_i - L0/2, l_i + L0/2].
     return 0.5 * float(
         POLYLINE_SEGMENT_LENGTHS_M[joint_index] + POLYLINE_SEGMENT_LENGTHS_M[joint_index + 1]
     )
 
 
-def _simpson_integrate(
-    f: Callable[[float], float],
-    a: float,
-    b: float,
-    n: int = 9,
-) -> float:
-    """
-    Simpson integration on [a, b].
-    n must be odd and >= 3. If even, it will be bumped by 1.
-    """
+def _simpson_integrate(f: Callable[[float], float], a: float, b: float, n: int = 9) -> float:
     if n < 3:
         n = 3
     if n % 2 == 0:
         n += 1
-
     h = (b - a) / (n - 1)
     s = f(a) + f(b)
     for i in range(1, n - 1):
@@ -116,15 +100,10 @@ def _simpson_integrate(
 
 def _shape_functions(l: float, t: float, cfg: dict) -> Tuple[float, float, float]:
     """
-    Returns:
-        kappa_a, kappa_b, tau
-
-    Paper-consistent structure:
-      kappa_a^C = kappa_F * sin((a1*l + a0)*t + phi_F^B)
-      kappa_b^C = kappa_F * cos((a1*l + a0)*t + phi_F^B)
-      tau^C     = a1 * t
-
-    Here wave_number is interpreted as total cycles over BODY_LENGTH_M.
+    Engineering-friendly version:
+      - ka, kb directly set the two principal bending amplitudes
+      - twist rotates these two components in the normal plane
+      - tau = a1 * t
     """
     ka = _cfg_float(cfg, "ka", 0.03)
     kb = _cfg_float(cfg, "kb", 0.09)
@@ -137,66 +116,72 @@ def _shape_functions(l: float, t: float, cfg: dict) -> Tuple[float, float, float
     rollv = _cfg_float(cfg, "rollv", 0.0)  # a0
     a1 = _cfg_float(cfg, "a1", 0.0)
 
-    # wave_number counts cycles over the whole body
+    # wave_number = number of cycles over the whole body length
     ktheta = wave_number / BODY_LENGTH_M
     omega_t = 1.0 / period if period != 0.0 else 0.0
 
-    psi = 2.0 * math.pi * (ktheta * l - omega_t * t)
+    # Base sidewinding phase
+    psi = 2.0 * math.pi * (ktheta * l - omega_t * t) + phi_offset
 
-    denom = (
-        ka * ka * (math.sin(psi) ** 2)
-        + kb * kb * (math.cos(psi) ** 2)
-        + ktheta * ktheta
-    ) ** 1.5
+    # Principal bending components in the bellows frame
+    # Use a flat ellipse directly: one axis gets ka, the other gets kb.
+    # You can swap sin/cos if your frame convention feels 90° shifted.
+    kappa_a_b = gain * ka * math.sin(psi)
+    kappa_b_b = gain * kb * math.cos(psi)
 
-    if denom == 0.0:
-        kappa_f = 0.0
-    else:
-        kappa_f = (ka * kb * ktheta * ktheta) / denom
+    # Twist/rolling rotation about the tangent
+    phi_b_c = (a1 * l + rollv) * t
+    c = math.cos(phi_b_c)
+    s = math.sin(phi_b_c)
 
-    phase = psi + phi_offset + (a1 * l + rollv) * t
+    # Rotate from bellows frame B to complete frame C
+    kappa_a_c = c * kappa_a_b + s * kappa_b_b
+    kappa_b_c = -s * kappa_a_b + c * kappa_b_b
 
-    kappa_a = gain * kappa_f * math.sin(phase)
-    kappa_b = gain * kappa_f * math.cos(phase)
-    tau = a1 * t
+    # torsion
+    tau_c = a1 * t
 
-    return kappa_a, kappa_b, tau
+    return kappa_a_c, kappa_b_c, tau_c
 
 
 def _make_joint_function(joint_index: int) -> Callable[[float], float]:
     if not (0 <= joint_index < N_JOINTS):
         raise IndexError(f"joint_index out of range: {joint_index}")
 
+    cfg = _load_gait_params()
     l_i = _joint_center_l(joint_index)
     span_i = _joint_span(joint_index)
     axis = JOINT_AXES[joint_index]
     sign = JOINT_SIGNS[joint_index]
 
     def joint_fn(t: float) -> float:
-        cfg = _load_gait_params()
         t = float(t)
 
-        # Twist joints are exact: tau^C = a1 * t, constant in l.
         if axis == Axis.X:
+            # twist joint: integrate torsion over span, plus fixed compensation
             a1 = _cfg_float(cfg, "a1", 0.0)
-            raw_angle = span_i * (a1 * t)
-            return TWIST_X_BASE_ANGLE_RAD + sign * raw_angle
+            raw = span_i * (a1 * t)
+            return TWIST_X_BASE_ANGLE_RAD + sign * raw
 
-        # For bending joints, integrate the rotated curvature over the local span.
         a = l_i - 0.5 * span_i
         b = l_i + 0.5 * span_i
 
-        if axis == Axis.Z:
-            # Dorsal joint in your convention -> κ_b
-            integrand = lambda l: _shape_functions(l, t, cfg)[1]
-        elif axis == Axis.Y:
-            # Lateral joint in your convention -> κ_a
+        if axis == Axis.Y:
+            # one bending direction
             integrand = lambda l: _shape_functions(l, t, cfg)[0]
+        elif axis == Axis.Z:
+            # the other bending direction
+            integrand = lambda l: _shape_functions(l, t, cfg)[1]
         else:
             raise ValueError(f"Unknown axis: {axis}")
 
-        raw_angle = _simpson_integrate(integrand, a, b, n=int(cfg.get("integration_steps", 9)))
-        return sign * raw_angle
+        raw = _simpson_integrate(
+            integrand,
+            a,
+            b,
+            n=int(cfg.get("integration_steps", 9)),
+        )
+        return sign * raw
 
     return joint_fn
 
