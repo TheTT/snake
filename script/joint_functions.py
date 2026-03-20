@@ -129,13 +129,18 @@ def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float
         kappa_f = (ka * kb * ktheta * ktheta) / denom
 
     # complete-frame phase
-    phase = psi + phi0 + (a1 * l + rollv) * t
+    # rollv is interpreted as a base twist rate (cycles per second) that
+    # contributes to X-twist and also shifts Y/Z phase distribution. Multiply
+    # by 2*pi to keep units consistent with psi.
+    phase = psi + phi0 + 2.0 * math.pi * (a1 * l + rollv) * t
 
     kappa_a = kappa_f * math.sin(phase)
     kappa_b = kappa_f * math.cos(phase)
 
-    # torsion density; the joint output integrates this over one span
-    tau = a1 * t
+    # torsion density; include base rollv as added twist rate. We make tau
+    # depend on arc-length l so twisting gradient a1 and base rollv both
+    # contribute to local torsion seen by X joints.
+    tau = (a1 * l + rollv) * t
 
     return kappa_a, kappa_b, tau
 
