@@ -76,8 +76,8 @@ _SW_JSON_PATH = Path(__file__).resolve().parent / "gait" / "sw.json"
 _GAIT_DEFAULTS = {
     "ka": 0.02,
     "kb": 0.08,
-    "ktheta": 1.0 / (2.0 * math.pi),
-    "omega_t": 0.0,
+    "wave_number": 1.0 / (2.0 * math.pi),
+    "period": 1.0,
     "phi_offset": 0.0,
     "rollv": 0.0,
     "a1": 0.0,
@@ -89,6 +89,19 @@ try:
         for k in _GAIT_DEFAULTS.keys():
             if k in raw and raw[k] is not None:
                 _GAIT_PARAMS[k] = float(raw[k])
+        # Backward compatibility for old config keys.
+        if "wave_number" not in raw and ("ktheta" in raw or "k_theta" in raw):
+            if "ktheta" in raw and raw["ktheta"] is not None:
+                _GAIT_PARAMS["wave_number"] = float(raw["ktheta"])
+            elif "k_theta" in raw and raw["k_theta"] is not None:
+                _GAIT_PARAMS["wave_number"] = float(raw["k_theta"])
+        if "period" not in raw and ("omega_t" in raw or "omega" in raw):
+            omega_t = 0.0
+            if "omega_t" in raw and raw["omega_t"] is not None:
+                omega_t = float(raw["omega_t"])
+            elif "omega" in raw and raw["omega"] is not None:
+                omega_t = float(raw["omega"])
+            _GAIT_PARAMS["period"] = (1.0 / omega_t) if omega_t > 1e-12 else _GAIT_DEFAULTS["period"]
 except Exception:
     # Keep defaults if file is missing or malformed.
     pass
@@ -108,8 +121,9 @@ def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float
     """
     ka = _cfg_float(cfg, "ka", "k_a", default=0.02)
     kb = _cfg_float(cfg, "kb", "k_b", default=0.08)
-    ktheta = _cfg_float(cfg, "ktheta", "k_theta", default=1.0 / (2.0 * math.pi))
-    omega_t = _cfg_float(cfg, "omega_t", "omega", default=0.0)
+    wave_number = _cfg_float(cfg, "wave_number", "k", default=1.0 / (2.0 * math.pi))
+    period = _cfg_float(cfg, "period", "T", default=1.0)
+    omega_t = (1.0 / period) if period > 1e-12 else 0.0
     phi0 = _cfg_float(cfg, "phi_offset", "phi0", default=0.0)
 
     # rolling coefficient (paper's a0), and twisting gradient (paper's a1)
@@ -117,18 +131,18 @@ def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float
     a1 = _cfg_float(cfg, "a1", "twistv", default=0.0)
 
     # Elliptical helix parameter
-    psi = 2.0 * math.pi * (ktheta * l - omega_t * t)
+    psi = 2.0 * math.pi * (wave_number * l - omega_t * t)
 
     denom = (
         ka * ka * (math.sin(psi) ** 2)
         + kb * kb * (math.cos(psi) ** 2)
-        + ktheta * ktheta
+        + wave_number * wave_number
     ) ** 1.5
 
     if denom == 0.0:
         kappa_f = 0.0
     else:
-        kappa_f = (ka * kb * ktheta * ktheta) / denom
+        kappa_f = (ka * kb * wave_number * wave_number) / denom
 
     # complete-frame phase: base sidewinding phase + rolling/twisting term
     phase = psi + phi0 + (a1 * l + rollv) * t
