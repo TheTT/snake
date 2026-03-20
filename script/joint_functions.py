@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Callable, Dict, Tuple
 from enum import IntEnum
 from functools import lru_cache
 
@@ -71,48 +71,74 @@ def _load_gait_params() -> dict:
 
 
 def _cfg_float(cfg: dict, key: str, default: float = 0.0) -> float:
-    val = cfg.get(key, default)
-    if val is None:
+    v = cfg.get(key, default)
+    if v is None:
         return float(default)
-    return float(val)
+    return float(v)
 
 
-# Center arc-length of each joint, using the midpoint of the adjacent polyline spans.
-_JOINT_CENTER_LS_M = tuple(
-    sum(POLYLINE_SEGMENT_LENGTHS_M[: i + 1]) for i in range(N_JOINTS)
-)
-
-# Local integration length for each joint.
-# Use the average of the two adjacent polyline segments as a midpoint-rule approximation.
-_JOINT_SPANS_M = tuple(
-    0.5 * (POLYLINE_SEGMENT_LENGTHS_M[i] + POLYLINE_SEGMENT_LENGTHS_M[i + 1])
-    for i in range(N_JOINTS)
-)
+def _joint_center_l(joint_index: int) -> float:
+    # Keep the same convention as your previous polyline setup:
+    # joint i is placed at the cumulative length up to segment i.
+    return float(sum(POLYLINE_SEGMENT_LENGTHS_M[: joint_index + 1]))
 
 
-def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float]:
+def _joint_span(joint_index: int) -> float:
+    # Midpoint-rule window around each joint.
+    # This approximates the paper's segment-wise integral over [l_i - L0/2, l_i + L0/2].
+    return 0.5 * float(
+        POLYLINE_SEGMENT_LENGTHS_M[joint_index] + POLYLINE_SEGMENT_LENGTHS_M[joint_index + 1]
+    )
+
+
+def _simpson_integrate(
+    f: Callable[[float], float],
+    a: float,
+    b: float,
+    n: int = 9,
+) -> float:
+    """
+    Simpson integration on [a, b].
+    n must be odd and >= 3. If even, it will be bumped by 1.
+    """
+    if n < 3:
+        n = 3
+    if n % 2 == 0:
+        n += 1
+
+    h = (b - a) / (n - 1)
+    s = f(a) + f(b)
+    for i in range(1, n - 1):
+        x = a + i * h
+        s += (4.0 if (i % 2 == 1) else 2.0) * f(x)
+    return s * h / 3.0
+
+
+def _shape_functions(l: float, t: float, cfg: dict) -> Tuple[float, float, float]:
     """
     Returns:
         kappa_a, kappa_b, tau
 
-    Notes:
-        wave_number = number of full cycles over BODY_LENGTH_M
-        period      = wave period in seconds
-        rollv       = a0 in the paper
-        a1          = twisting gradient in the paper
+    Paper-consistent structure:
+      kappa_a^C = kappa_F * sin((a1*l + a0)*t + phi_F^B)
+      kappa_b^C = kappa_F * cos((a1*l + a0)*t + phi_F^B)
+      tau^C     = a1 * t
+
+    Here wave_number is interpreted as total cycles over BODY_LENGTH_M.
     """
     ka = _cfg_float(cfg, "ka", 0.03)
     kb = _cfg_float(cfg, "kb", 0.09)
+    gain = _cfg_float(cfg, "gain", 1.0)
+
     wave_number = _cfg_float(cfg, "wave_number", 1.0)
     period = _cfg_float(cfg, "period", 5.0)
-    phi0 = _cfg_float(cfg, "phi_offset", 0.0)
-    rollv = _cfg_float(cfg, "rollv", 0.0)
+    phi_offset = _cfg_float(cfg, "phi_offset", 0.0)
+
+    rollv = _cfg_float(cfg, "rollv", 0.0)  # a0
     a1 = _cfg_float(cfg, "a1", 0.0)
 
-    # cycles per meter
+    # wave_number counts cycles over the whole body
     ktheta = wave_number / BODY_LENGTH_M
-
-    # cycles per second -> rad/s factor is absorbed by 2*pi in phase
     omega_t = 1.0 / period if period != 0.0 else 0.0
 
     psi = 2.0 * math.pi * (ktheta * l - omega_t * t)
@@ -128,19 +154,11 @@ def _shape_functions(l: float, t: float, cfg: dict) -> tuple[float, float, float
     else:
         kappa_f = (ka * kb * ktheta * ktheta) / denom
 
-    # complete-frame phase
-    # rollv is interpreted as a base twist rate (cycles per second) that
-    # contributes to X-twist and also shifts Y/Z phase distribution. Multiply
-    # by 2*pi to keep units consistent with psi.
-    phase = psi + phi0 + 2.0 * math.pi * (a1 * l + rollv) * t
+    phase = psi + phi_offset + (a1 * l + rollv) * t
 
-    kappa_a = kappa_f * math.sin(phase)
-    kappa_b = kappa_f * math.cos(phase)
-
-    # torsion density; include base rollv as added twist rate. We make tau
-    # depend on arc-length l so twisting gradient a1 and base rollv both
-    # contribute to local torsion seen by X joints.
-    tau = (a1 * l + rollv) * t
+    kappa_a = gain * kappa_f * math.sin(phase)
+    kappa_b = gain * kappa_f * math.cos(phase)
+    tau = a1 * t
 
     return kappa_a, kappa_b, tau
 
@@ -149,31 +167,35 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
     if not (0 <= joint_index < N_JOINTS):
         raise IndexError(f"joint_index out of range: {joint_index}")
 
-    cfg = _load_gait_params()
-
-    l_i = _JOINT_CENTER_LS_M[joint_index]
-    span_i = _JOINT_SPANS_M[joint_index]
+    l_i = _joint_center_l(joint_index)
+    span_i = _joint_span(joint_index)
     axis = JOINT_AXES[joint_index]
     sign = JOINT_SIGNS[joint_index]
 
     def joint_fn(t: float) -> float:
-        kappa_a, kappa_b, tau = _shape_functions(l_i, float(t), cfg)
+        cfg = _load_gait_params()
+        t = float(t)
 
-        # Keep this mapping consistent with your mechanism:
-        #   Axis.Z -> dorsal
-        #   Axis.Y -> lateral
-        #   Axis.X -> twist
-        gain = _cfg_float(cfg, "gain", 1.0)
+        # Twist joints are exact: tau^C = a1 * t, constant in l.
+        if axis == Axis.X:
+            a1 = _cfg_float(cfg, "a1", 0.0)
+            raw_angle = span_i * (a1 * t)
+            return TWIST_X_BASE_ANGLE_RAD + sign * raw_angle
+
+        # For bending joints, integrate the rotated curvature over the local span.
+        a = l_i - 0.5 * span_i
+        b = l_i + 0.5 * span_i
 
         if axis == Axis.Z:
-            raw_angle = span_i * kappa_b * gain
+            # Dorsal joint in your convention -> κ_b
+            integrand = lambda l: _shape_functions(l, t, cfg)[1]
         elif axis == Axis.Y:
-            raw_angle = span_i * kappa_a * gain
-        elif axis == Axis.X:
-            raw_angle = span_i * tau - TWIST_X_BASE_ANGLE_RAD
+            # Lateral joint in your convention -> κ_a
+            integrand = lambda l: _shape_functions(l, t, cfg)[0]
         else:
             raise ValueError(f"Unknown axis: {axis}")
 
+        raw_angle = _simpson_integrate(integrand, a, b, n=int(cfg.get("integration_steps", 9)))
         return sign * raw_angle
 
     return joint_fn
