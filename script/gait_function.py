@@ -27,43 +27,21 @@ except Exception:
     pass
 
 
-# def f(t: float, s: float) -> np.ndarray:
-#     """Sample evolving target curve: a flattened helix in 3D.
-
-#     Args:
-#         t: time in seconds, t >= 0.
-#         s: normalized arc parameter in [0, 1].
-#     """
-#     ss = max(0.0, min(1.0, float(s)))
-
-#     # spatial wavenumber k applies to normalized s
-#     k = float(_F_PARAMS["k"])
-#     freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
-#     ah = float(_F_PARAMS["ah"])  # z amplitude
-#     av = float(_F_PARAMS["av"])  # y amplitude
-
-#     phase = 2.0 * math.pi * (k * ss - freq * float(t))
-
-#     x = ss
-#     y = av * math.cos(phase)
-#     z = ah * math.sin(phase)
-#     return np.array([x, y, z], dtype=np.float64)
-
 def f(t: float, s: float) -> np.ndarray:
+    # spatial wavenumber k applies to normalized s
+    k = float(_F_PARAMS["k"])
+    freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
     ah = float(_F_PARAMS["ah"])  # z amplitude
     av = float(_F_PARAMS["av"])  # y amplitude
-    freq = float(_F_PARAMS["freq"])  # temporal frequency (Hz)
 
-    phase = 2.0 * math.pi * freq * float(t)
+    phase = 2.0 * math.pi * (k * s - freq * float(t))
 
-    x = - s
-    y = av * s * s * math.cos(phase)
-    if t < 5.0:
-        y *= t / 5.0
-    z = 0
+    x = s
+    y = av * math.cos(phase)
+    z = ah * math.sin(phase)
     return np.array([x, y, z], dtype=np.float64)
 
 
 def g(t: float, s: float) -> float:
     """Sample twist field: always zero."""
-    return math.pi * min(1.0, t / 5.0)
+    return 0
