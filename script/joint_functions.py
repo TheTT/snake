@@ -57,8 +57,6 @@ TWIST_X_BASE_ANGLE_RAD = math.pi / 2.0
 
 X_JOINT_INDICES_0B = [i for i, a in enumerate(JOINT_AXES) if a == Axis.X]
 
-_LATEST_JOINT_ANGLES: List[float] = [0.0 for _ in range(N_JOINTS)]
-
 
 # 关节中心弧长：第 i 个关节位于前 i+1 段长度之后
 _JOINT_CENTER_LS_M = tuple(
@@ -177,7 +175,10 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
         else:
             raise ValueError(f"Unknown axis: {axis}")
 
-        return sign * angle
+        cmd = sign * angle
+        if axis == Axis.X:
+            cmd += TWIST_X_BASE_ANGLE_RAD
+        return cmd
 
     return joint_fn
 
