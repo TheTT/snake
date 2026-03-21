@@ -144,31 +144,54 @@ def _shape_functions(l: float, t: float, cfg: dict) -> Tuple[float, float, float
     return kappa_a_c, kappa_b_c, tau_c
 
 
-def _shape_functions_piecewise(l: float, t: float, cfg: dict, phase_i: float) -> Tuple[float, float, float]:
+def _shape_functions_piecewise(
+    l: float,
+    t: float,
+    cfg: dict,
+    *,
+    l_ref: float,
+) -> Tuple[float, float, float]:
+    """
+    Piecewise zero-order approximation for twisting sidewinding.
+
+    Paper-consistent idea:
+      - keep the base curvature wave as a function of l
+      - freeze the twisting phase (a1*l + a0)*t at the segment center l_ref
+      - torsion remains tau_C = a1 * t
+    """
     ka = _cfg_float(cfg, "ka", 0.03)
     kb = _cfg_float(cfg, "kb", 0.09)
     gain = _cfg_float(cfg, "gain", 1.0)
 
     wave_number = _cfg_float(cfg, "wave_number", 1.0)
-    period = _cfg_float(cfg, "period", 5.0)
+    period = _cfg_float(cfg, "period", 0.0)
     phi_offset = _cfg_float(cfg, "phi_offset", 0.0)
+
+    # paper: phi_B^C = (a1*l + a0) * t
+    a0 = _cfg_float(cfg, "rollv", 0.0)
     a1 = _cfg_float(cfg, "a1", 0.0)
 
+    # base wave along the backbone
     ktheta = wave_number / BODY_LENGTH_M
     omega_t = 1.0 / period if period != 0.0 else 0.0
-
     psi = 2.0 * math.pi * (ktheta * l - omega_t * t) + phi_offset
 
+    # curvature components in the bellows frame
     kappa_a_b = gain * ka * math.sin(psi)
     kappa_b_b = gain * kb * math.cos(psi)
 
-    c = math.cos(phase_i)
-    s = math.sin(phase_i)
+    # freeze twisting phase at the current joint segment center
+    phi_b_c_ref = (a1 * l_ref + a0) * t
+    c = math.cos(phi_b_c_ref)
+    s = math.sin(phi_b_c_ref)
 
+    # rotate from bellows frame B to complete frame C
     kappa_a_c = c * kappa_a_b + s * kappa_b_b
     kappa_b_c = -s * kappa_a_b + c * kappa_b_b
 
+    # torsion in frame C
     tau_c = a1 * t
+
     return kappa_a_c, kappa_b_c, tau_c
 
 
@@ -185,6 +208,7 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
     def joint_fn(t: float) -> float:
         t = float(t)
 
+        # twist joint: integrate tau_C over the joint span
         if axis == Axis.X:
             a1 = _cfg_float(cfg, "a1", 0.0)
             raw = span_i * (a1 * t)
@@ -193,20 +217,10 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
         a = l_i - 0.5 * span_i
         b = l_i + 0.5 * span_i
 
-        a0 = _cfg_float(cfg, "rollv", 0.0)
-        a1 = _cfg_float(cfg, "a1", 0.0)
-
-        phase_i = (a1 * l_i + a0) * t
-
-        def integrand_y(l: float) -> float:
-            kappa_a_b, kappa_b_b, _ = _shape_functions(l, t, cfg)
-
-            return kappa_a_b
-
         if axis == Axis.Y:
-            integrand = lambda l: _shape_functions_piecewise(l, t, cfg, phase_i)[0]
+            integrand = lambda l: _shape_functions_piecewise(l, t, cfg, l_ref=l_i)[0]
         elif axis == Axis.Z:
-            integrand = lambda l: _shape_functions_piecewise(l, t, cfg, phase_i)[1]
+            integrand = lambda l: _shape_functions_piecewise(l, t, cfg, l_ref=l_i)[1]
         else:
             raise ValueError(f"Unknown axis: {axis}")
 
