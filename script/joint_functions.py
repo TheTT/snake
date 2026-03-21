@@ -98,52 +98,6 @@ def _simpson_integrate(f: Callable[[float], float], a: float, b: float, n: int =
     return s * h / 3.0
 
 
-def _shape_functions(l: float, t: float, cfg: dict) -> Tuple[float, float, float]:
-    """
-    Engineering-friendly version:
-      - ka, kb directly set the two principal bending amplitudes
-      - twist rotates these two components in the normal plane
-      - tau = a1 * t
-    """
-    ka = _cfg_float(cfg, "ka", 0.03)
-    kb = _cfg_float(cfg, "kb", 0.09)
-    gain = _cfg_float(cfg, "gain", 1.0)
-
-    wave_number = _cfg_float(cfg, "wave_number", 1.0)
-    period = _cfg_float(cfg, "period", 5.0)
-    phi_offset = _cfg_float(cfg, "phi_offset", 0.0)
-
-    rollv = _cfg_float(cfg, "rollv", 0.0)  # a0
-    a1 = _cfg_float(cfg, "a1", 0.0)
-
-    # wave_number = number of cycles over the whole body length
-    ktheta = wave_number / BODY_LENGTH_M
-    omega_t = 1.0 / period if period != 0.0 else 0.0
-
-    # Base sidewinding phase
-    psi = 2.0 * math.pi * (ktheta * l - omega_t * t) + phi_offset
-
-    # Principal bending components in the bellows frame
-    # Use a flat ellipse directly: one axis gets ka, the other gets kb.
-    # You can swap sin/cos if your frame convention feels 90° shifted.
-    kappa_a_b = gain * ka * math.sin(psi)
-    kappa_b_b = gain * kb * math.cos(psi)
-
-    # Twist/rolling rotation about the tangent
-    phi_b_c = (a1 * l + rollv) * t
-    c = math.cos(phi_b_c)
-    s = math.sin(phi_b_c)
-
-    # Rotate from bellows frame B to complete frame C
-    kappa_a_c = c * kappa_a_b + s * kappa_b_b
-    kappa_b_c = -s * kappa_a_b + c * kappa_b_b
-
-    # torsion
-    tau_c = a1 * t
-
-    return kappa_a_c, kappa_b_c, tau_c
-
-
 def _shape_functions_piecewise(
     l: float,
     t: float,
@@ -152,44 +106,50 @@ def _shape_functions_piecewise(
     l_ref: float,
 ) -> Tuple[float, float, float]:
     """
-    Piecewise zero-order approximation for twisting sidewinding.
+    Paper-consistent piecewise approximation for twisting sidewinding.
 
-    Paper-consistent idea:
-      - keep the base curvature wave as a function of l
-      - freeze the twisting phase (a1*l + a0)*t at the segment center l_ref
-      - torsion remains tau_C = a1 * t
+    Key idea:
+      - freeze phi_B^C = (a1*l + a0)*t at the joint center l_ref
+      - do NOT additionally shrink bending amplitude near twist joints
+      - if a1 != 0 (twisting mode), omega_t should be 0 in the paper's turning experiments
     """
     ka = _cfg_float(cfg, "ka", 0.03)
     kb = _cfg_float(cfg, "kb", 0.09)
     gain = _cfg_float(cfg, "gain", 1.0)
 
     wave_number = _cfg_float(cfg, "wave_number", 1.0)
-    period = _cfg_float(cfg, "period", 0.0)
     phi_offset = _cfg_float(cfg, "phi_offset", 0.0)
 
-    # paper: phi_B^C = (a1*l + a0) * t
     a0 = _cfg_float(cfg, "rollv", 0.0)
     a1 = _cfg_float(cfg, "a1", 0.0)
 
-    # base wave along the backbone
+    # Paper-consistent handling:
+    # rolling sidewinding: a1 = 0, omega_t may be non-zero
+    # twisting sidewinding: a1 != 0, omega_t = 0 in the experiments
+    omega_t_cfg = cfg.get("omega_t", None)
+    if omega_t_cfg is None:
+        period = _cfg_float(cfg, "period", 0.0)
+        omega_t = 0.0 if abs(a1) > 1e-12 else (1.0 / period if period != 0.0 else 0.0)
+    else:
+        omega_t = float(omega_t_cfg)
+
     ktheta = wave_number / BODY_LENGTH_M
-    omega_t = 1.0 / period if period != 0.0 else 0.0
     psi = 2.0 * math.pi * (ktheta * l - omega_t * t) + phi_offset
 
-    # curvature components in the bellows frame
+    # Bellows-frame curvature components
     kappa_a_b = gain * ka * math.sin(psi)
     kappa_b_b = gain * kb * math.cos(psi)
 
-    # freeze twisting phase at the current joint segment center
+    # Freeze twisting phase at the joint center
     phi_b_c_ref = (a1 * l_ref + a0) * t
     c = math.cos(phi_b_c_ref)
     s = math.sin(phi_b_c_ref)
 
-    # rotate from bellows frame B to complete frame C
+    # Rotate from bellows frame B to complete frame C
     kappa_a_c = c * kappa_a_b + s * kappa_b_b
     kappa_b_c = -s * kappa_a_b + c * kappa_b_b
 
-    # torsion in frame C
+    # torsion
     tau_c = a1 * t
 
     return kappa_a_c, kappa_b_c, tau_c
@@ -208,8 +168,8 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
     def joint_fn(t: float) -> float:
         t = float(t)
 
-        # twist joint: integrate tau_C over the joint span
         if axis == Axis.X:
+            # Twist joint: Eq. (22c), theta_twi_i = a1 * L0 * t
             a1 = _cfg_float(cfg, "a1", 0.0)
             raw = span_i * (a1 * t)
             return TWIST_X_BASE_ANGLE_RAD + sign * raw
