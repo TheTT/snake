@@ -144,6 +144,34 @@ def _shape_functions(l: float, t: float, cfg: dict) -> Tuple[float, float, float
     return kappa_a_c, kappa_b_c, tau_c
 
 
+def _shape_functions_piecewise(l: float, t: float, cfg: dict, phase_i: float) -> Tuple[float, float, float]:
+    ka = _cfg_float(cfg, "ka", 0.03)
+    kb = _cfg_float(cfg, "kb", 0.09)
+    gain = _cfg_float(cfg, "gain", 1.0)
+
+    wave_number = _cfg_float(cfg, "wave_number", 1.0)
+    period = _cfg_float(cfg, "period", 5.0)
+    phi_offset = _cfg_float(cfg, "phi_offset", 0.0)
+    a1 = _cfg_float(cfg, "a1", 0.0)
+
+    ktheta = wave_number / BODY_LENGTH_M
+    omega_t = 1.0 / period if period != 0.0 else 0.0
+
+    psi = 2.0 * math.pi * (ktheta * l - omega_t * t) + phi_offset
+
+    kappa_a_b = gain * ka * math.sin(psi)
+    kappa_b_b = gain * kb * math.cos(psi)
+
+    c = math.cos(phase_i)
+    s = math.sin(phase_i)
+
+    kappa_a_c = c * kappa_a_b + s * kappa_b_b
+    kappa_b_c = -s * kappa_a_b + c * kappa_b_b
+
+    tau_c = a1 * t
+    return kappa_a_c, kappa_b_c, tau_c
+
+
 def _make_joint_function(joint_index: int) -> Callable[[float], float]:
     if not (0 <= joint_index < N_JOINTS):
         raise IndexError(f"joint_index out of range: {joint_index}")
@@ -158,7 +186,6 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
         t = float(t)
 
         if axis == Axis.X:
-            # twist joint: integrate torsion over span, plus fixed compensation
             a1 = _cfg_float(cfg, "a1", 0.0)
             raw = span_i * (a1 * t)
             return TWIST_X_BASE_ANGLE_RAD + sign * raw
@@ -166,12 +193,20 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
         a = l_i - 0.5 * span_i
         b = l_i + 0.5 * span_i
 
+        a0 = _cfg_float(cfg, "rollv", 0.0)
+        a1 = _cfg_float(cfg, "a1", 0.0)
+
+        phase_i = (a1 * l_i + a0) * t
+
+        def integrand_y(l: float) -> float:
+            kappa_a_b, kappa_b_b, _ = _shape_functions(l, t, cfg)
+
+            return kappa_a_b
+
         if axis == Axis.Y:
-            # one bending direction
-            integrand = lambda l: _shape_functions(l, t, cfg)[0]
+            integrand = lambda l: _shape_functions_piecewise(l, t, cfg, phase_i)[0]
         elif axis == Axis.Z:
-            # the other bending direction
-            integrand = lambda l: _shape_functions(l, t, cfg)[1]
+            integrand = lambda l: _shape_functions_piecewise(l, t, cfg, phase_i)[1]
         else:
             raise ValueError(f"Unknown axis: {axis}")
 
