@@ -98,6 +98,57 @@ def _simpson_integrate(f: Callable[[float], float], a: float, b: float, n: int =
     return s * h / 3.0
 
 
+MODULE_COUNT = N_JOINTS // 3
+MODULE_LENGTH_M = BODY_LENGTH_M / MODULE_COUNT
+TWIST_EPS = 1e-12
+
+
+def _shape_functions(l: float, t: float, cfg: dict) -> Tuple[float, float, float]:
+    """
+    Engineering-friendly version:
+      - ka, kb directly set the two principal bending amplitudes
+      - twist rotates these two components in the normal plane
+      - tau = a1 * t
+    """
+    ka = _cfg_float(cfg, "ka", 0.03)
+    kb = _cfg_float(cfg, "kb", 0.09)
+    gain = _cfg_float(cfg, "gain", 1.0)
+
+    wave_number = _cfg_float(cfg, "wave_number", 1.0)
+    period = _cfg_float(cfg, "period", 5.0)
+    phi_offset = _cfg_float(cfg, "phi_offset", 0.0)
+
+    rollv = _cfg_float(cfg, "rollv", 0.0)  # a0
+    a1 = _cfg_float(cfg, "a1", 0.0)
+
+    # wave_number = number of cycles over the whole body length
+    ktheta = wave_number / BODY_LENGTH_M
+    omega_t = 1.0 / period if period != 0.0 else 0.0
+
+    # Base sidewinding phase
+    psi = 2.0 * math.pi * (ktheta * l - omega_t * t) + phi_offset
+
+    # Principal bending components in the bellows frame
+    # Use a flat ellipse directly: one axis gets ka, the other gets kb.
+    # You can swap sin/cos if your frame convention feels 90° shifted.
+    kappa_a_b = gain * ka * math.sin(psi)
+    kappa_b_b = gain * kb * math.cos(psi)
+
+    # Twist/rolling rotation about the tangent
+    phi_b_c = (a1 * l + rollv) * t
+    c = math.cos(phi_b_c)
+    s = math.sin(phi_b_c)
+
+    # Rotate from bellows frame B to complete frame C
+    kappa_a_c = c * kappa_a_b + s * kappa_b_b
+    kappa_b_c = -s * kappa_a_b + c * kappa_b_b
+
+    # torsion
+    tau_c = a1 * t
+
+    return kappa_a_c, kappa_b_c, tau_c
+
+
 def _shape_functions_piecewise(
     l: float,
     t: float,
@@ -108,10 +159,11 @@ def _shape_functions_piecewise(
     """
     Paper-consistent piecewise approximation for twisting sidewinding.
 
-    Key idea:
+    For a1 != 0:
       - freeze phi_B^C = (a1*l + a0)*t at the joint center l_ref
-      - do NOT additionally shrink bending amplitude near twist joints
-      - if a1 != 0 (twisting mode), omega_t should be 0 in the paper's turning experiments
+      - use omega_t = 0 (paper's twisting experiments)
+    For a1 == 0:
+      - this function should not be used; keep rolling mode path unchanged.
     """
     ka = _cfg_float(cfg, "ka", 0.03)
     kb = _cfg_float(cfg, "kb", 0.09)
@@ -123,35 +175,25 @@ def _shape_functions_piecewise(
     a0 = _cfg_float(cfg, "rollv", 0.0)
     a1 = _cfg_float(cfg, "a1", 0.0)
 
-    # Paper-consistent handling:
-    # rolling sidewinding: a1 = 0, omega_t may be non-zero
-    # twisting sidewinding: a1 != 0, omega_t = 0 in the experiments
-    omega_t_cfg = cfg.get("omega_t", None)
-    if omega_t_cfg is None:
-        period = _cfg_float(cfg, "period", 0.0)
-        omega_t = 0.0 if abs(a1) > 1e-12 else (1.0 / period if period != 0.0 else 0.0)
-    else:
-        omega_t = float(omega_t_cfg)
+    # Twisting sidewinding in the paper uses omega_t = 0 in the turning experiments.
+    omega_t = 0.0 if abs(a1) > TWIST_EPS else _cfg_float(cfg, "omega_t", 0.0)
 
     ktheta = wave_number / BODY_LENGTH_M
     psi = 2.0 * math.pi * (ktheta * l - omega_t * t) + phi_offset
 
-    # Bellows-frame curvature components
+    # Base bending in bellows frame
     kappa_a_b = gain * ka * math.sin(psi)
     kappa_b_b = gain * kb * math.cos(psi)
 
-    # Freeze twisting phase at the joint center
+    # Freeze the twist phase at the joint center
     phi_b_c_ref = (a1 * l_ref + a0) * t
     c = math.cos(phi_b_c_ref)
     s = math.sin(phi_b_c_ref)
 
-    # Rotate from bellows frame B to complete frame C
     kappa_a_c = c * kappa_a_b + s * kappa_b_b
     kappa_b_c = -s * kappa_a_b + c * kappa_b_b
 
-    # torsion
     tau_c = a1 * t
-
     return kappa_a_c, kappa_b_c, tau_c
 
 
@@ -165,17 +207,43 @@ def _make_joint_function(joint_index: int) -> Callable[[float], float]:
     axis = JOINT_AXES[joint_index]
     sign = JOINT_SIGNS[joint_index]
 
+    a1 = _cfg_float(cfg, "a1", 0.0)
+    turning_mode = abs(a1) > TWIST_EPS
+
     def joint_fn(t: float) -> float:
         t = float(t)
 
+        # Twist joint
         if axis == Axis.X:
-            # Twist joint: Eq. (22c), theta_twi_i = a1 * L0 * t
-            a1 = _cfg_float(cfg, "a1", 0.0)
-            raw = span_i * (a1 * t)
+            if not turning_mode:
+                # keep rolling mode unchanged
+                return TWIST_X_BASE_ANGLE_RAD
+            raw = MODULE_LENGTH_M * a1 * t
             return TWIST_X_BASE_ANGLE_RAD + sign * raw
 
-        a = l_i - 0.5 * span_i
-        b = l_i + 0.5 * span_i
+        # Rolling mode: keep your original behavior unchanged
+        if not turning_mode:
+            a = l_i - 0.5 * span_i
+            b = l_i + 0.5 * span_i
+
+            if axis == Axis.Y:
+                integrand = lambda l: _shape_functions(l, t, cfg)[0]
+            elif axis == Axis.Z:
+                integrand = lambda l: _shape_functions(l, t, cfg)[1]
+            else:
+                raise ValueError(f"Unknown axis: {axis}")
+
+            raw = _simpson_integrate(
+                integrand,
+                a,
+                b,
+                n=int(cfg.get("integration_steps", 9)),
+            )
+            return sign * raw
+
+        # Twisting mode: paper-consistent piecewise approximation
+        a = l_i - 0.5 * MODULE_LENGTH_M
+        b = l_i + 0.5 * MODULE_LENGTH_M
 
         if axis == Axis.Y:
             integrand = lambda l: _shape_functions_piecewise(l, t, cfg, l_ref=l_i)[0]
